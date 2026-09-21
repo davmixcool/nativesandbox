@@ -1,0 +1,124 @@
+---
+title: "doctor and setup"
+sidebarTitle: "doctor & setup"
+description: "Find out whether a host can run sandboxes, and fix what it cannot — one command at a time, shown before it runs."
+---
+
+## `nsbx doctor`
+
+```bash
+npx nativesandbox doctor
+```
+
+Read-only. Reports what it found rather than a verdict alone, and exits `0` when the host can
+run a sandbox, `1` when it cannot — so it works as a deployment gate.
+
+```
+info platform     Linux 6.14.0-1016-oracle arm64
+info version      0.2.0
+info socket       /run/user/1001/podman/podman.sock  (Podman's per-user socket)
+
+   ✓ container engine         reachable, version 4.9.3
+   ✓ podman socket            active
+   ✓ lingering                on — survives logout
+   ✓ cgroup delegation        cpu memory pids
+   ✓ subuid / subgid          present
+   ✓ user namespaces          enabled
+   ✓ seccomp                  available
+   ✓ apparmor                 enabled
+   ✓ /dev/kvm                 absent, and not required
+   ✓ limits enforced          memory.max is 67108864 — the kernel is holding it
+
+done This host can run sandboxes.
+```
+
+### What it checks, and why each one is here
+
+| Check | The failure it catches |
+|---|---|
+| container engine | Nothing at the socket. The message names the socket it tried and **why it picked that one** |
+| podman socket | Installed but not listening |
+| lingering | The socket dies at your next logout — the cause and the symptom are hours apart |
+| cgroup delegation | Limits are accepted and **silently ignored** |
+| subuid / subgid | No subordinate id range, so rootless containers cannot start |
+| user namespaces | Disabled in the kernel |
+| seccomp, apparmor | The engine's default profiles are unavailable |
+| `/dev/kvm` | Reported, and **not required** — its absence is why this package exists |
+| limits enforced | The only check that proves anything. See below |
+
+### `--deep`
+
+```bash
+npx nativesandbox doctor --deep
+```
+
+Everything above is configuration read back to you. Configuration can be right and the kernel
+can still ignore it, and a memory limit that is accepted and dropped looks *exactly* like one
+that holds — until you read `memory.max` from inside a running sandbox.
+
+`--deep` creates a real 64 MiB sandbox, reads its cgroup, removes it, and tells you which it
+was:
+
+```
+   ✓ limits enforced          memory.max is 67108864 — the kernel is holding it
+```
+
+```
+   ✗ limits enforced          asked for 67108864, the sandbox sees 8323infinity
+     The limit was accepted and ignored — every sandbox on this host is unbounded.
+```
+
+Without `--deep`, this check runs only if the probe image is already cached, so a cold `doctor`
+stays fast and says plainly that it did not verify:
+
+```
+   – limits enforced          not verified
+     Run `nsbx doctor --deep` to pull docker.io/library/alpine:latest and prove the kernel holds a limit.
+```
+
+<Note>
+  A figure equal to the host's total memory is the tell. Treat it as a failure, not a warning —
+  nothing will error, and every sandbox on that host is unbounded.
+</Note>
+
+## `nsbx setup`
+
+```bash
+npx nativesandbox setup
+```
+
+Applies what `doctor` found. **It asks before each command**, prints the command, and says
+whether it needs root:
+
+```
+2 changes to make:
+
+  [1/2] Install Podman  (needs sudo)
+  sudo apt-get update && sudo apt-get install -y podman
+  run it? [y/N/q]
+```
+
+`y` runs it, anything else skips it, `q` stops. The default is no.
+
+This installs system packages and changes systemd units on a machine nativesandbox does not
+own, so it does not do that quietly. It is not one confirmation for the whole batch either:
+someone happy to enable lingering is not necessarily happy to let a package manager run.
+
+| Flag | |
+|---|---|
+| `--print` | Show the commands and change nothing. Paste them yourself |
+| `--yes` | Run them without asking. For CI, where there is nobody to ask |
+
+Without a terminal and without `--yes`, `setup` refuses rather than assuming consent.
+
+### What it knows how to fix
+
+Install Podman (apt, dnf, pacman, apk or zypper, detected from `/etc/os-release`), enable the
+user socket, turn on lingering, delegate cgroup controllers, add a subuid range, and enable user
+namespaces.
+
+<Warning>
+  There is deliberately no `postinstall` hook. A package that reconfigures your host when you
+  `npm install` it is a package you cannot audit before it runs — and many CI setups pass
+  `--ignore-scripts` anyway, so it would be unreliable as well as rude.
+</Warning>

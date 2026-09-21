@@ -1,0 +1,102 @@
+---
+title: "Sandbox commands"
+sidebarTitle: "Commands"
+description: "run, exec, ls, rm and sweep — the fleet from a terminal."
+---
+
+Every command accepts `--root`, `--prefix` and `--socket`, and the short binary name is `nsbx`
+once the package is installed.
+
+## `run`
+
+```bash
+npx nativesandbox run "npm install && npm test"
+```
+
+Creates a throwaway sandbox, runs the command, **streams output as it is produced**, then
+removes the sandbox. Exits with the command's own status, so it composes with anything:
+
+```bash
+npx nativesandbox run "npm test" && echo "green"
+```
+
+| Flag | Default | |
+|---|---|---|
+| `--name <n>` | `run-<pid>` | Name it, so `--keep` leaves something you can `exec` into |
+| `--runtime <r>` | `node` | `node` or `python` |
+| `--image <ref>` | — | An explicit image, overriding `--runtime` |
+| `--memory <MiB>` | `512` | |
+| `--cpus <n>` | `1` | Fractional allowed |
+| `--network none` | bridge | Cut the sandbox off from the network entirely |
+| `--keep` | off | Leave it behind instead of removing it |
+
+```bash
+# A build that cannot phone home, in a box that is gone afterwards.
+npx nativesandbox run --network none --memory 2048 "npm ci --ignore-scripts"
+```
+
+## `exec`
+
+```bash
+npx nativesandbox exec build "cat dist/report.txt"
+```
+
+Runs a command in a sandbox that already exists, streaming as `run` does. Use it with a sandbox
+your application created, or one `run --keep --name` left behind.
+
+## `ls`
+
+```bash
+npx nativesandbox ls
+```
+
+```
+  NAME   STATE    IMAGE           AGE  IDLE  MAX LIFE
+  build  running  node:22-alpine  4m   300s  3600s
+  tests  exited   node:22-alpine  2h   300s  3600s
+```
+
+`IDLE` and `MAX LIFE` are read off each container, not from this process — so they are what that
+sandbox will actually be reclaimed by, even if another process created it.
+
+Only sandboxes with the matching prefix are listed. A container this package did not create is
+never shown and never touched.
+
+## `rm`
+
+```bash
+npx nativesandbox rm build tests
+npx nativesandbox rm --all
+```
+
+Removes the container **and its workspace**. Not reversible — use `stop` semantics from the
+library if you want the cache kept.
+
+Removing something that is already gone is reported, not an error.
+
+## `sweep`
+
+```bash
+npx nativesandbox sweep
+```
+
+Runs both housekeeping passes once: stop everything past its idle timeout, retire everything
+past its maximum lifetime. Neither touches a sandbox with a command in flight, and neither
+deletes a workspace.
+
+```
+  stopped  tests
+  retired  old-build  (workspaces kept)
+done 1 stopped, 1 retired
+```
+
+Useful from cron on a host where the application is not long-lived enough to sweep for itself.
+
+## Exit codes
+
+| | |
+|---|---|
+| `0` | It worked |
+| the command's own | `run` and `exec` pass it through, so `exit 42` inside gives you `42` |
+| `1` | It failed — no engine, no such sandbox, a check that did not pass |
+| `2` | You typed it wrong. Distinct from `1` so a script can tell them apart |

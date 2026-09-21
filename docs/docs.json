@@ -45,6 +45,13 @@
             ]
           },
           {
+            "group": "CLI",
+            "pages": [
+              "cli/doctor",
+              "cli/commands"
+            ]
+          },
+          {
             "group": "Guides",
             "pages": [
               "guides/sandboxes",

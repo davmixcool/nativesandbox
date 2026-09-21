@@ -1,39 +1,68 @@
 ---
 title: "Quickstart"
-description: "Create a sandbox, run a command in it, move files in and out, and clean up."
+description: "From nothing to a running sandbox in one command, then the same thing from code."
 ---
 
-## Install
+<Steps>
+
+<Step title="Run something, with nothing installed">
+
+```bash
+npx nativesandbox run "node --version"
+```
+
+That pulls the package, creates a sandbox, runs the command, streams the output back and removes
+the sandbox. There is no binary to download and no runtime to install — the container engine on
+your host is the runtime.
+
+If it fails, the next step says why.
+
+</Step>
+
+<Step title="Check the host">
+
+```bash
+npx nativesandbox doctor
+```
+
+```
+info platform     Linux 6.14.0 arm64
+info socket       /run/user/1001/podman/podman.sock  (Podman's per-user socket)
+
+   ✓ container engine         reachable, version 4.9.3
+   ✓ podman socket            active
+   ✓ lingering                on — survives logout
+   ✓ cgroup delegation        cpu memory pids
+   ✓ subuid / subgid          present
+   ✓ user namespaces          enabled
+   ✓ /dev/kvm                 absent, and not required
+
+done This host can run sandboxes.
+```
+
+Anything it finds, it explains and offers to fix:
+
+```bash
+npx nativesandbox setup
+```
+
+`setup` prints each command, says whether it needs root, and waits for you to agree before
+running it. Nothing happens to your machine that you have not seen first. See
+[the CLI](/cli/doctor) for the full check list.
+
+</Step>
+
+<Step title="Install the library">
 
 ```bash
 npm install nativesandbox
 ```
 
-Node 22 or newer. Zero runtime dependencies — nativesandbox talks to the container engine over
-its own socket and bundles nothing.
+Node 22 or newer. Zero runtime dependencies.
 
-## Check the host first
+</Step>
 
-The most common failure is not a bug in your code: it is an engine that is not reachable. Ask
-before you depend on it.
-
-```ts
-import { Sandboxes } from "nativesandbox";
-
-const sandboxes = new Sandboxes();
-const health = await sandboxes.check();
-
-if (!health.ok) {
-  throw new Error(`No container engine: ${health.problem}`);
-}
-console.log(`engine ${health.engine}`);
-```
-
-`check()` never throws. It answers `{ ok, engine }` or `{ ok, problem }`, which makes it safe to
-call at startup — the alternative is discovering the problem on a user's first command. If the
-engine is missing, [requirements](/getting-started/requirements) covers installing it.
-
-## Create a sandbox
+<Step title="Create a sandbox and run a command">
 
 ```ts
 import { Sandboxes, MiB } from "nativesandbox";
@@ -45,10 +74,13 @@ const box = await sandboxes.create("job-1", {
   memory: MiB(512),
   cpus: 1,
 });
+
+const result = await box.exec("node --version");
+console.log(result.stdout);      // v22.11.0
 ```
 
-The name is yours to choose and is how you find the sandbox again. Calling `create()` with the
-same name returns the same sandbox as long as its shape still serves the request — see
+The name is yours and is how you find the sandbox again. Calling `create()` with the same name
+returns the same sandbox while its shape still serves the request — see
 [sandboxes](/guides/sandboxes).
 
 <Note>
@@ -56,27 +88,9 @@ same name returns the same sandbox as long as its shape still serves the request
   `GiB(2)` — and the ambiguity between megabytes, mebibytes and bytes cannot reach the engine.
 </Note>
 
-## Run a command
+</Step>
 
-```ts
-const result = await box.exec("node --version");
-
-result.code;        // 0
-result.stdout;      // "v22.11.0\n"
-result.stderr;      // ""
-result.timedOut;    // false
-```
-
-Commands run through a shell in `/workspace`, so pipes, redirects and `&&` all work:
-
-```ts
-await box.exec("npm install --silent && npm test", { timeoutMs: 120_000 });
-```
-
-`exec` resolves rather than throwing on a non-zero exit — a failing build is a result, not an
-exception. See [running commands](/guides/commands) for streaming, timeouts and cancellation.
-
-## Move files in and out
+<Step title="Move files in and out">
 
 ```ts
 await box.writeFile("/src/main.js", "console.log(41 + 1)");
@@ -90,18 +104,41 @@ box.exists("/dist/bundle.js");                           // true
 These are host reads and writes, because the workspace is a bind mount rather than a channel to
 a guest. `box.workspaceDir` is the directory on the host, and reading it is reading the sandbox.
 
-## Clean up
+</Step>
+
+<Step title="Clean up">
 
 ```ts
-await box.stop();               // keeps the workspace; the next create() starts it again
-await sandboxes.remove("job-1"); // removes the container AND the workspace
-sandboxes.close();               // stops the housekeeping timer
+await box.stop();                   // keeps the workspace; the next create() starts it again
+await sandboxes.remove("job-1");    // removes the container AND the workspace
+sandboxes.close();                  // stops the housekeeping timer
 ```
 
-Call `sandboxes.close()` when your process is shutting down. The timer is unref'd, so it will
-never keep a process alive on its own, but stopping it is tidier than leaving it to the runtime.
+Or from the terminal:
 
-## All together
+```bash
+npx nativesandbox ls
+npx nativesandbox rm job-1
+```
+
+</Step>
+
+</Steps>
+
+## What happens when you create a sandbox
+
+1. The image is pulled if it is not already cached — slow the first time, instant afterwards.
+2. A workspace directory is created on the host and bind-mounted at `/workspace`.
+3. A container starts with your memory, CPU and PID limits applied through cgroups, every Linux
+   capability dropped, and no-new-privileges set.
+4. It idles on `sleep infinity`, so every later command is an exec into the same sandbox and
+   whatever the last command installed is still there.
+5. If it goes quiet for five minutes it stops, keeping the workspace. After an hour it is
+   retired and rebuilt fresh over the same warm workspace.
+
+Steps 4 and 5 are why reuse is worth having: the second `npm install` in a sandbox is free.
+
+## A complete example
 
 ```ts
 import { Sandboxes, GiB, SandboxError } from "nativesandbox";
@@ -112,7 +149,10 @@ try {
   const box = await sandboxes.create("build", { memory: GiB(1), cpus: 2 });
   await box.writeFile("/package.json", JSON.stringify({ name: "x", version: "1.0.0" }));
 
-  const install = await box.exec("npm install --silent", { timeoutMs: 180_000 });
+  const install = await box.exec("npm install --silent", {
+    timeoutMs: 180_000,
+    onFrame: ({ data }) => process.stdout.write(data),   // stream it, do not wait
+  });
   if (install.code !== 0) throw new Error(install.stderr);
 
   console.log(await box.readFile("/package-lock.json"));
@@ -133,7 +173,13 @@ try {
   <Card title="Requirements" icon="server" href="/getting-started/requirements">
     What the host needs, and how to prove it has it.
   </Card>
+  <Card title="The CLI" icon="terminal" href="/cli/doctor">
+    doctor, setup, run, ls, exec, rm, sweep.
+  </Card>
   <Card title="Isolation" icon="shield-halved" href="/guides/isolation">
-    What is taken away from every sandbox, and what is left.
+    What is taken away from every sandbox.
+  </Card>
+  <Card title="API reference" icon="code" href="/api-reference/sandboxes">
+    Every option and method.
   </Card>
 </CardGroup>

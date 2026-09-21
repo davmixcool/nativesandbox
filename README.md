@@ -21,6 +21,28 @@ offered at all.
 
 Containers need no virtualisation, and every Linux host already runs them.
 
+## Try it, with nothing installed
+
+```bash
+npx nativesandbox run "node --version"
+```
+
+That creates a sandbox, runs the command, streams the output back and removes the sandbox. No
+binary to download and no runtime to version-match — the container engine on your host is the
+runtime.
+
+If the host is not ready, it will say so:
+
+```bash
+npx nativesandbox doctor        # what is wrong, if anything
+npx nativesandbox setup         # fix it, asking before each command
+```
+
+`doctor` exits non-zero when the host cannot run sandboxes, so it works as a deployment gate.
+`--deep` goes further and creates a real sandbox to prove the kernel is actually holding a
+memory limit, rather than accepting it and ignoring it — which looks identical from the outside
+and leaves every sandbox unbounded.
+
 ## Install
 
 ```bash
@@ -108,11 +130,24 @@ new Sandboxes({ runtime: "runsc" });
 **If your host has KVM and you want hardware isolation, use a microVM runtime.** This exists for
 the hosts that cannot.
 
+## The CLI
+
+`nativesandbox`, or `nsbx` for short.
+
+| | |
+|---|---|
+| `doctor` | Can this host run sandboxes? `--deep` proves the limits are real |
+| `setup` | Apply what doctor found, asking before each command |
+| `run` | A throwaway sandbox, streamed, exiting with the command's own status |
+| `exec` | A command in a sandbox that already exists |
+| `ls` / `rm` / `sweep` | See the fleet, remove from it, reclaim what has gone quiet |
+
 ## Documentation
 
 | | |
 |---|---|
 | [Quickstart](https://nativesandbox.dev/getting-started/quickstart) | Create, run, read back, clean up |
+| [CLI](https://nativesandbox.dev/cli/doctor) | doctor, setup, and the sandbox commands |
 | [Requirements](https://nativesandbox.dev/getting-started/requirements) | What the host needs, and how to prove it |
 | [Isolation](https://nativesandbox.dev/guides/isolation) | What is taken away, and what is not defended against |
 | [API reference](https://nativesandbox.dev/api-reference/sandboxes) | Every option and method |

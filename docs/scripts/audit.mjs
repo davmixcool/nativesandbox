@@ -140,6 +140,26 @@ for (const code of codes) {
   if (thrown.has(code) && claimedReserved) fail(`${code} IS thrown now — remove the "reserved" note from operations/errors.mdx`);
 }
 
+// ── 4b. every CLI command is documented ───────────────────────────────────
+// Same rot as an undocumented export, but worse: a command a user can type and cannot look up.
+const cli = await readSource('cli.ts');
+// `[^=]*` would stop at the `=>` inside the type annotation and match nothing.
+const commandBlock = cli.match(/const COMMANDS[\s\S]*?= \{([\s\S]*?)\n\};/u)?.[1] ?? '';
+const commands = [...commandBlock.matchAll(/(\w+):\s*cmd\w+/gu)].map((m) => m[1]);
+if (commands.length === 0) fail('Parsed no CLI commands from ../src/cli.ts');
+for (const command of commands) {
+  if (!new RegExp(`\`(?:nsbx |npx nativesandbox )?${command}\``, 'u').test(allProse)
+      && !new RegExp(`^## \`${command}\``, 'mu').test(allProse)) {
+    fail(`CLI command is undocumented: ${command}`);
+  }
+}
+
+// The flags the CLI advertises in its own --help must exist in the docs too.
+const usage = cli.match(/const USAGE = `([\s\S]*?)`;/u)?.[1] ?? '';
+for (const [, flag] of usage.matchAll(/^\s{4}(--[a-z-]+)/gmu)) {
+  if (!allProse.includes(flag)) fail(`CLI flag is in --help but not in the docs: ${flag}`);
+}
+
 // ── 5. constants quoted in prose match the source ─────────────────────────
 const workspace = runtime.match(/export const WORKSPACE = "([^"]+)"/u)?.[1];
 if (!workspace) fail('Could not read WORKSPACE from the source');

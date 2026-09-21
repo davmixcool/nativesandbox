@@ -3,6 +3,28 @@ title: "Changelog"
 description: "Releases of nativesandbox."
 ---
 
+<Update label="0.2.0" description="2026-09-21">
+
+**A CLI.** `npx nativesandbox run "node --version"` works with nothing installed — there is no
+binary to download and no runtime to version-match, because the container engine on your host
+*is* the runtime.
+
+`nsbx doctor` checks whether a host can run sandboxes and explains what is wrong when it cannot,
+including the one failure that reads as success: a cgroup limit the kernel **accepts and
+ignores**. `--deep` creates a real sandbox and reads `memory.max` back to prove it. It exits
+non-zero when the host is not ready, so it works as a deployment gate.
+
+`nsbx setup` applies what doctor found, printing each command and asking before it runs — it
+installs system packages and edits systemd units, so it does not do that quietly. `--print`
+shows them and changes nothing; `--yes` is for CI.
+
+`run`, `exec`, `ls`, `rm` and `sweep` cover the fleet from a terminal. `run` and `exec` stream
+output as it is produced and exit with the command's own status.
+
+Both binaries — `nativesandbox` and `nsbx` — ship in the same package. Still zero dependencies.
+
+</Update>
+
 <Update label="0.1.1" description="2026-09-21">
 
 `nativesandbox/package.json` is now reachable through the exports map. Tools that read a

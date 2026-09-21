@@ -1,6 +1,6 @@
 {
   "name": "nativesandbox",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Run untrusted code in isolated sandboxes on any Linux host \u2014 containers via Podman or Docker, no nested virtualisation and no KVM required.",
   "keywords": [
     "sandbox",
@@ -32,6 +32,10 @@
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "nativesandbox": "./dist/cli.js",
+    "nsbx": "./dist/cli.js"
   },
   "files": [
     "dist",

@@ -1,81 +1,127 @@
 ---
-title: "nativesandbox"
-sidebarTitle: "Overview"
-description: "Run untrusted code in isolated sandboxes on any Linux host. Containers through Podman or Docker — no nested virtualisation, no KVM, no daemon of its own."
+title: "Sandboxes on any Linux host"
+sidebarTitle: "Introduction"
+description: "Run untrusted code in isolated sandboxes without a hypervisor. Containers through Podman or Docker — no KVM, no nested virtualisation, no daemon of its own."
 ---
 
-If you have ever seen this, you are in the right place:
+Move risky work out of your process. Model-generated code, user submissions, plugins, CI jobs —
+anything you would not run inline gets its own sandbox, with its own memory, CPU and process
+budget, and a workspace you can read and write directly.
 
+```bash
+npx nativesandbox run "node --version"
 ```
-[BootStart] failed to start "…": sandbox process exited
-(signal: 6 (SIGABRT) (core dumped)) before agent relay became available
-```
 
-That is not a corrupt runtime, and no version of any microVM tool fixes it. It is a host without
-`/dev/kvm`. Nested virtualisation is unavailable on all but bare-metal instance types, and on
-Oracle's Ampere ARM64 shapes — the free tier a great many small deployments live on — it is not
-offered at all.
+That is the whole install. No binary to download, no runtime to version-match, nothing written
+to a dot-directory in your home.
 
-**nativesandbox runs the same workloads in containers.** Containers need no virtualisation, and
-every Linux host already runs them.
+## Why nativesandbox
 
-```ts
+<CardGroup cols={2}>
+  <Card title="Runs where microVMs cannot" icon="server">
+    Containers need no nested virtualisation. On the cloud shapes that do not offer it — Oracle's
+    Ampere ARM64 free tier among them — a microVM cannot boot at all, and this can.
+  </Card>
+  <Card title="Nothing to install but the engine" icon="feather">
+    Zero dependencies, and no runtime of its own. Podman or Docker is the runtime, and your
+    distro already packages it.
+  </Card>
+  <Card title="The workspace is a directory" icon="folder-open">
+    Bind-mounted, not copied through an agent channel. 7× faster to place 200 files and 49×
+    faster to read them back than a microVM runtime on the same machine.
+  </Card>
+  <Card title="Warm caches between commands" icon="rotate">
+    Reuse is meet-or-exceed, so a sandbox built large serves a small command. A dependency
+    install survives instead of going cold every time.
+  </Card>
+  <Card title="Hardened by default" icon="shield-halved">
+    Every Linux capability dropped, no-new-privileges, cgroup limits, and a network policy per
+    sandbox — each verified against a real `npm install`, not assumed.
+  </Card>
+  <Card title="A fleet that reclaims itself" icon="broom">
+    Idle stop and a hard maximum lifetime, recorded on the container so they outlive the process
+    that set them. Neither interrupts a command in flight.
+  </Card>
+</CardGroup>
+
+## What people use it for
+
+- **AI agents that run code.** A tool call that executes whatever the model wrote, in a box.
+- **Untrusted user submissions.** Coding exercises, notebook cells, marketplace plugins.
+- **Build and test isolation.** A dependency install that cannot reach the rest of the host.
+- **Per-tenant workspaces.** One long-lived sandbox per customer, reclaimed when it goes quiet.
+- **Anything on a host without `/dev/kvm`.** Which, on the cheap cloud shapes, is most of them.
+
+## A minimal example
+
+<CodeGroup>
+
+```ts TypeScript
 import { Sandboxes, MiB } from "nativesandbox";
 
 const sandboxes = new Sandboxes();
-const box = await sandboxes.create("job-1", { memory: MiB(512), cpus: 1 });
+const box = await sandboxes.create("hello", { memory: MiB(512) });
 
-await box.writeFile("/main.js", "console.log('hello from inside')");
+await box.writeFile("/main.js", "console.log('Hello from a sandbox!')");
 const { stdout } = await box.exec("node main.js");
 
-console.log(stdout);            // hello from inside
-await sandboxes.remove("job-1");
+console.log(stdout);
+await sandboxes.remove("hello");
 ```
 
-## What you get
+```js JavaScript
+const { Sandboxes, MiB } = await import("nativesandbox");
 
-<CardGroup cols={2}>
-  <Card title="Isolation without a hypervisor" icon="shield-halved" href="/guides/isolation">
-    Rootless containers, every Linux capability dropped, no-new-privileges, cgroup limits, and an
-    optional read-only root. gVisor is one option away.
-  </Card>
-  <Card title="A workspace that is just a directory" icon="folder-open" href="/guides/workspace">
-    The workspace is bind-mounted, so writing a file is a host write. Measured against a microVM
-    runtime on the same machine: 7× faster to place 200 files, 49× faster to read them back.
-  </Card>
-  <Card title="Reuse that keeps caches warm" icon="rotate" href="/guides/sandboxes">
-    A sandbox is reused when its shape still serves the request, so a dependency install survives
-    between commands instead of going cold every time.
-  </Card>
-  <Card title="A fleet that reclaims itself" icon="broom" href="/guides/reclaiming">
-    Idle stop and a hard maximum lifetime, per sandbox or per instance, recorded on the container
-    so they outlive the process that set them.
-  </Card>
-</CardGroup>
+const sandboxes = new Sandboxes();
+const box = await sandboxes.create("hello", { memory: MiB(512) });
+
+await box.writeFile("/main.js", "console.log('Hello from a sandbox!')");
+const { stdout } = await box.exec("node main.js");
+
+console.log(stdout);
+await sandboxes.remove("hello");
+```
+
+```bash CLI
+npx nativesandbox run "node -e \"console.log('Hello from a sandbox!')\""
+```
+
+</CodeGroup>
+
+```
+Hello from a sandbox!
+```
 
 ## The trade, stated plainly
 
 This is process isolation, not hardware isolation. A sandbox cannot read or write the host, but
 the boundary it leans on is the kernel rather than a hypervisor, and that is a weaker boundary.
 
-It is narrowed by running rootless — the sandbox's root is an unprivileged user on the host,
-through a user namespace — and by seccomp, by memory, CPU and PID limits through cgroups, and by
-a network policy per sandbox. It can be narrowed a great deal further, at no cost, by running the
-same sandboxes under [gVisor](/guides/isolation#gvisor), which puts a user-space kernel in front
-of the syscall interface and still needs no KVM.
+It is narrowed by running rootless, by dropping every capability, by seccomp, by cgroup limits
+and by a per-sandbox network policy — and it can be narrowed much further, at no cost, with
+[gVisor](/guides/isolation#gvisor), which still needs no KVM.
 
 **If your host has KVM and you want hardware isolation, use a microVM runtime.** This exists for
-the hosts that cannot.
+the hosts that cannot. If you have seen this, that is you:
 
-## Install
-
-```bash
-npm install nativesandbox
+```
+[BootStart] failed to start "…": sandbox process exited
+(signal: 6 (SIGABRT) (core dumped)) before agent relay became available
 ```
 
-Zero dependencies. Node 22 or newer, a Linux host, and Podman or Docker reachable over its socket
-— see [requirements](/getting-started/requirements).
+## Next steps
 
-<Card title="Quickstart" icon="play" href="/getting-started/quickstart">
-  Create a sandbox, run a command, read a file back, and clean up.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="play" href="/getting-started/quickstart">
+    From nothing to a running sandbox, in one command.
+  </Card>
+  <Card title="Check your host" icon="stethoscope" href="/cli/doctor">
+    `nsbx doctor` tells you whether this machine can run sandboxes, and what to fix if not.
+  </Card>
+  <Card title="Isolation" icon="shield-halved" href="/guides/isolation">
+    What is taken away from every sandbox — and what is not defended against.
+  </Card>
+  <Card title="API reference" icon="terminal" href="/api-reference/sandboxes">
+    Every option and method.
+  </Card>
+</CardGroup>
