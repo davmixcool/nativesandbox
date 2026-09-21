@@ -16,6 +16,10 @@
   "navbar": {
     "links": [
       {
+        "label": "GitHub",
+        "href": "https://github.com/davmixcool/nativesandbox"
+      },
+      {
         "label": "npm",
         "href": "https://www.npmjs.com/package/nativesandbox"
       }

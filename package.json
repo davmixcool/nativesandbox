@@ -1,9 +1,26 @@
 {
   "name": "nativesandbox",
   "version": "0.1.0",
-  "description": "Run untrusted code in isolated sandboxes on any Linux host — containers via Podman or Docker, no nested virtualisation and no KVM required.",
-  "keywords": ["sandbox", "container", "podman", "docker", "untrusted-code", "agent", "isolation", "no-kvm", "arm64"],
+  "description": "Run untrusted code in isolated sandboxes on any Linux host \u2014 containers via Podman or Docker, no nested virtualisation and no KVM required.",
+  "keywords": [
+    "sandbox",
+    "container",
+    "podman",
+    "docker",
+    "untrusted-code",
+    "agent",
+    "isolation",
+    "no-kvm",
+    "arm64"
+  ],
   "homepage": "https://nativesandbox.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davmixcool/nativesandbox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/davmixcool/nativesandbox/issues"
+  },
   "license": "Apache-2.0",
   "author": "David Oti <davmixcool@gmail.com>",
   "type": "module",
@@ -15,8 +32,13 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "src", "README.md"],
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
   "scripts": {
+    "prepack": "npm run build",
     "build": "tsc --build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
@@ -26,5 +48,18 @@
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "@types/node": ">=22"
+  },
+  "peerDependenciesMeta": {
+    "@types/node": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
