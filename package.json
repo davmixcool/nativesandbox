@@ -5,6 +5,7 @@
   "keywords": ["sandbox", "container", "podman", "docker", "untrusted-code", "agent", "isolation", "no-kvm", "arm64"],
   "homepage": "https://nativesandbox.dev",
   "license": "Apache-2.0",
+  "author": "David Oti <davmixcool@gmail.com>",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
