@@ -8,9 +8,18 @@ Move risky work out of your process. Model-generated code, user submissions, plu
 anything you would not run inline gets its own sandbox, with its own memory, CPU and process
 budget, and a workspace you can read and write directly.
 
-```bash
+<CodeGroup>
+
+```bash Install
+npm install -g nativesandbox
+nsbx run "node --version"
+```
+
+```bash No install
 npx nativesandbox run "node --version"
 ```
+
+</CodeGroup>
 
 That is the whole install. No binary to download, no runtime to version-match, nothing written
 to a dot-directory in your home.
@@ -83,7 +92,7 @@ await sandboxes.remove("hello");
 ```
 
 ```bash CLI
-npx nativesandbox run "node -e \"console.log('Hello from a sandbox!')\""
+nsbx run "node -e \"console.log('Hello from a sandbox!')\""
 ```
 
 </CodeGroup>

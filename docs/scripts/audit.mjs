@@ -152,6 +152,14 @@ for (const command of commands) {
       && !new RegExp(`^## \`${command}\``, 'mu').test(allProse)) {
     fail(`CLI command is undocumented: ${command}`);
   }
+  // Shown in the form the CLI's own --help uses. `npx nativesandbox …` is correct but is the
+  // install-free alternative, not the canonical spelling; docs that drift to it stop matching
+  // the tool they document. Aliases are not required to appear.
+  const canonical = new RegExp(`^\\s*nsbx ${command}\\b`, 'mu');
+  const aliases = ['list', 'remove'];
+  if (!aliases.includes(command) && !canonical.test(allProse)) {
+    fail(`CLI command is never shown as \`nsbx ${command}\` — the docs should match the tool's own usage line`);
+  }
 }
 
 // The flags the CLI advertises in its own --help must exist in the docs too.

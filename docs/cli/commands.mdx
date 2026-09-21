@@ -4,20 +4,61 @@ sidebarTitle: "Commands"
 description: "run, exec, ls, rm and sweep — the fleet from a terminal."
 ---
 
-Every command accepts `--root`, `--prefix` and `--socket`, and the short binary name is `nsbx`
-once the package is installed.
+Every command accepts `--root`, `--prefix` and `--socket`. These pages write `nsbx`, which is
+what a global install gives you; `npx nativesandbox` works identically in every example below.
+
+## Getting the command
+
+`npm install nativesandbox` does **not** put `nsbx` on your shell's PATH. npm links a package's
+binaries into `node_modules/.bin`, which is on PATH inside npm scripts and `npx` — not in your
+terminal. Three ways to run it:
+
+<CodeGroup>
+
+```bash Global
+# Puts `nsbx` and `nativesandbox` on your PATH. What these docs assume.
+npm install -g nativesandbox
+nsbx doctor
+```
+
+```bash No install
+# Downloads and runs it. Nothing is left behind.
+npx nativesandbox doctor
+```
+
+```bash In a project
+# Anywhere the package is a dependency, npx finds the local copy.
+npm install nativesandbox
+npx nsbx doctor
+```
+
+</CodeGroup>
+
+<Note>
+  Under **nvm**, a global install lands in the current Node version's directory — switch
+  versions and `nsbx` is gone until you install it there too. `npx nativesandbox` sidesteps
+  that, at the cost of a slower first run.
+</Note>
+
+Inside a project, a `package.json` script needs no prefix at all, because npm puts
+`node_modules/.bin` on PATH for scripts:
+
+```json
+{ "scripts": { "sandbox:doctor": "nsbx doctor --deep" } }
+```
+
 
 ## `run`
 
 ```bash
-npx nativesandbox run "npm install && npm test"
+nsbx run "npm install && npm test"
 ```
 
 Creates a throwaway sandbox, runs the command, **streams output as it is produced**, then
 removes the sandbox. Exits with the command's own status, so it composes with anything:
 
 ```bash
-npx nativesandbox run "npm test" && echo "green"
+nsbx run "npm test" && echo "green"
 ```
 
 | Flag | Default | |
@@ -32,13 +73,13 @@ npx nativesandbox run "npm test" && echo "green"
 
 ```bash
 # A build that cannot phone home, in a box that is gone afterwards.
-npx nativesandbox run --network none --memory 2048 "npm ci --ignore-scripts"
+nsbx run --network none --memory 2048 "npm ci --ignore-scripts"
 ```
 
 ## `exec`
 
 ```bash
-npx nativesandbox exec build "cat dist/report.txt"
+nsbx exec build "cat dist/report.txt"
 ```
 
 Runs a command in a sandbox that already exists, streaming as `run` does. Use it with a sandbox
@@ -47,7 +88,7 @@ your application created, or one `run --keep --name` left behind.
 ## `ls`
 
 ```bash
-npx nativesandbox ls
+nsbx ls
 ```
 
 ```
@@ -65,8 +106,8 @@ never shown and never touched.
 ## `rm`
 
 ```bash
-npx nativesandbox rm build tests
-npx nativesandbox rm --all
+nsbx rm build tests
+nsbx rm --all
 ```
 
 Removes the container **and its workspace**. Not reversible — use `stop` semantics from the
@@ -77,7 +118,7 @@ Removing something that is already gone is reported, not an error.
 ## `sweep`
 
 ```bash
-npx nativesandbox sweep
+nsbx sweep
 ```
 
 Runs both housekeeping passes once: stop everything past its idle timeout, retire everything

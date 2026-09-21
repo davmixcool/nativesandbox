@@ -7,7 +7,7 @@ description: "Find out whether a host can run sandboxes, and fix what it cannot 
 ## `nsbx doctor`
 
 ```bash
-npx nativesandbox doctor
+nsbx doctor
 ```
 
 Read-only. Reports what it found rather than a verdict alone, and exits `0` when the host can
@@ -49,7 +49,7 @@ done This host can run sandboxes.
 ### `--deep`
 
 ```bash
-npx nativesandbox doctor --deep
+nsbx doctor --deep
 ```
 
 Everything above is configuration read back to you. Configuration can be right and the kernel
@@ -84,7 +84,7 @@ stays fast and says plainly that it did not verify:
 ## `nsbx setup`
 
 ```bash
-npx nativesandbox setup
+nsbx setup
 ```
 
 Applies what `doctor` found. **It asks before each command**, prints the command, and says

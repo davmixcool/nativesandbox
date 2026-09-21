@@ -5,24 +5,43 @@ description: "From nothing to a running sandbox in one command, then the same th
 
 <Steps>
 
-<Step title="Run something, with nothing installed">
+<Step title="Install the CLI">
 
 ```bash
-npx nativesandbox run "node --version"
+npm install -g nativesandbox
 ```
 
-That pulls the package, creates a sandbox, runs the command, streams the output back and removes
-the sandbox. There is no binary to download and no runtime to install — the container engine on
-your host is the runtime.
+That gives you `nsbx`. There is no binary to download and no runtime to install — the container
+engine already on your host is the runtime.
 
-If it fails, the next step says why.
+Or skip the install entirely and prefix every command with `npx nativesandbox` instead:
+
+```bash
+npx nativesandbox --version
+```
+
+<Note>
+  Under **nvm**, a global install lands in the current Node version's directory, so switching
+  versions hides `nsbx` until you install it there too.
+</Note>
+
+</Step>
+
+<Step title="Run something">
+
+```bash
+nsbx run "node --version"
+```
+
+That creates a sandbox, runs the command, streams the output back and removes the sandbox. If it
+fails, the next step says why.
 
 </Step>
 
 <Step title="Check the host">
 
 ```bash
-npx nativesandbox doctor
+nsbx doctor
 ```
 
 ```
@@ -43,7 +62,7 @@ done This host can run sandboxes.
 Anything it finds, it explains and offers to fix:
 
 ```bash
-npx nativesandbox setup
+nsbx setup
 ```
 
 `setup` prints each command, says whether it needs root, and waits for you to agree before
@@ -58,7 +77,8 @@ running it. Nothing happens to your machine that you have not seen first. See
 npm install nativesandbox
 ```
 
-Node 22 or newer. Zero runtime dependencies.
+Node 22 or newer. Zero runtime dependencies. This is the library, separate from the CLI in
+step 1 — a project depends on it, rather than installing it globally.
 
 </Step>
 
@@ -117,8 +137,8 @@ sandboxes.close();                  // stops the housekeeping timer
 Or from the terminal:
 
 ```bash
-npx nativesandbox ls
-npx nativesandbox rm job-1
+nsbx ls
+nsbx rm job-1
 ```
 
 </Step>

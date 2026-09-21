@@ -21,11 +21,14 @@ offered at all.
 
 Containers need no virtualisation, and every Linux host already runs them.
 
-## Try it, with nothing installed
+## Try it
 
 ```bash
-npx nativesandbox run "node --version"
+npm install -g nativesandbox
+nsbx run "node --version"
 ```
+
+Or without installing anything: `npx nativesandbox run "node --version"`.
 
 That creates a sandbox, runs the command, streams the output back and removes the sandbox. No
 binary to download and no runtime to version-match — the container engine on your host is the
@@ -34,8 +37,8 @@ runtime.
 If the host is not ready, it will say so:
 
 ```bash
-npx nativesandbox doctor        # what is wrong, if anything
-npx nativesandbox setup         # fix it, asking before each command
+nsbx doctor        # what is wrong, if anything
+nsbx setup         # fix it, asking before each command
 ```
 
 `doctor` exits non-zero when the host cannot run sandboxes, so it works as a deployment gate.
