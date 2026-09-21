@@ -1,0 +1,11 @@
+{
+  "name": "nativesandbox-brand",
+  "private": true,
+  "description": "Brand source for nativesandbox. Not a deployable — it rasterises the kit the docs and the site serve.",
+  "scripts": {
+    "build": "node build-config.mjs && node ~/.claude/skills/web-brand/scripts/generate.mjs --config brand.config.json --out ./dist --public ./dist/public && node build-svg.mjs && node build-favicon.mjs"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.10.0"
+  }
+}

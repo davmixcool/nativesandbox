@@ -1,0 +1,76 @@
+---
+title: "Resource limits"
+description: "Memory, CPU, processes and network per sandbox — and the branded units that stop a limit meaning the wrong thing."
+---
+
+```ts
+const box = await sandboxes.create("job", {
+  memory: MiB(512),
+  cpus: 1,
+  pids: 512,
+  network: "bridge",
+});
+```
+
+| Option | Default | Enforced by |
+|---|---|---|
+| `memory` | `MiB(512)` | cgroups — the kernel, not a request |
+| `cpus` | `1` | cgroups; fractional is allowed, `0.5` is half a core |
+| `pids` | `512` | cgroups; this is what stops a fork bomb |
+| `network` | `"bridge"` | the engine; `"none"` cuts it off entirely |
+
+## Units are part of the type
+
+`memory: 512` does not compile. It is ambiguous — megabytes, mebibytes and bytes differ by six
+orders of magnitude, and a comment saying which one is meant is not enforcement.
+
+```ts
+import { KiB, MiB, GiB, TiB } from "nativesandbox";
+
+memory: MiB(512)
+memory: GiB(2)
+```
+
+`Mebibytes` is a branded number, so the unit has to be written at the call site. `MiB(512) ===
+512` at runtime — the canonical unit *is* the mebibyte, and `KiB`, `GiB` and `TiB` convert into
+it. Nothing happens beyond that arithmetic: this is a device for the reader and the compiler.
+
+<Note>
+  JavaScript callers get the documentation value without the enforcement, because a branded type
+  is erased at runtime. If you are not using TypeScript, `memory` is a number of mebibytes.
+</Note>
+
+## Prove the limits are real
+
+A cgroup limit that the host cannot enforce is *accepted and ignored*, which is worse than being
+refused — nothing fails, and every sandbox is unbounded:
+
+```ts
+const box = await sandboxes.create("check", { memory: MiB(256) });
+const { stdout } = await box.exec("cat /sys/fs/cgroup/memory.max");
+stdout.trim();     // want "268435456", not the host's total memory
+```
+
+If that prints the host total, cgroup delegation is missing — see
+[requirements](/getting-started/requirements#verify-rather-than-assume).
+
+## Network
+
+```ts
+await sandboxes.create("offline", { network: "none" });
+```
+
+`"none"` gives the sandbox no network interface at all. It is the right default for anything
+that only has to transform data you handed it, and the wrong one for anything that installs
+dependencies.
+
+There is no partial mode. A sandbox that can reach the network can reach all of it that the host
+can, so where you need an allowlist, put it in front of the host — an egress proxy or a firewall
+rule — rather than expecting the sandbox to police itself.
+
+## Changing a limit
+
+Limits are fixed when the container is created. Asking for more on an existing sandbox rebuilds
+it, because a raised budget has to take effect; asking for less reuses what is there, because a
+bigger sandbox runs a smaller command perfectly well. That is the
+[meet-or-exceed rule](/guides/sandboxes#reuse-is-meet-or-exceed-not-equality).

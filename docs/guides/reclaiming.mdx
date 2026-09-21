@@ -1,0 +1,98 @@
+---
+title: "Reclaiming"
+description: "Idle stop, a hard maximum lifetime, and why a container fleet needs both when a microVM fleet does not."
+---
+
+A container's main process is `sleep infinity`, so unlike a microVM it never goes quiet on its
+own. A fleet where every sandbox reports `running` forever is one where nothing can ever be
+safely reclaimed — and the disk fills with workspaces nobody can account for.
+
+Two deadlines fix that, and both are on by default.
+
+| Deadline | Default | What happens | Workspace |
+|---|---|---|---|
+| `idleTimeoutMs` | 5 minutes | Stopped after that long with no command | kept |
+| `maxLifetimeMs` | 1 hour | Retired that long after creation, however busy | kept |
+
+Neither deletes anything. A stopped sandbox restarts on the next `create()` with everything the
+last command installed still there; a retired one gets a fresh container over the same warm
+workspace. Only [`remove()`](/guides/sandboxes#removing) deletes.
+
+## Per instance, or per sandbox
+
+Set the default for a fleet on the constructor, and override it for one sandbox that needs
+different treatment:
+
+```ts
+const sandboxes = new Sandboxes({
+  idleTimeoutMs: 5 * 60 * 1000,
+  maxLifetimeMs: 60 * 60 * 1000,
+  stopGraceMs: 10_000,
+});
+
+// This one is a long build; give it the afternoon.
+await sandboxes.create("nightly", { maxLifetimeMs: 4 * 60 * 60 * 1000 });
+
+// This one is a one-shot; do not let it linger.
+await sandboxes.create("probe", { idleTimeoutMs: 30_000 });
+```
+
+`0` disables a deadline, per sandbox or per instance.
+
+### The deadlines live on the container
+
+They are recorded as labels rather than held in the process. That means the sweep honours them
+after a restart, and any other process reading the fleet sees the same clocks — a sandbox
+created by a worker that has since exited is still retired on time, by whoever is sweeping.
+
+```ts
+const [info] = await sandboxes.list();
+info.idleTimeoutMs;     // what THIS sandbox was created with, or null if it predates the label
+```
+
+## A command in flight is never interrupted
+
+Neither deadline touches a sandbox with a command running.
+
+The maximum lifetime is a ceiling on how long a sandbox can be **reused**, not a kill switch
+under a running build. A three-hour build in a sandbox with a one-hour ceiling finishes; it is
+retired on the next sweep afterwards.
+
+## Sweeping
+
+A timer runs both passes automatically, at a fraction of the soonest deadline so a sandbox is
+stopped within — not up to double — the interval asked for. It is unref'd, so it will never keep
+your process alive on its own.
+
+Run them yourself when you want control:
+
+```ts
+const { stopped, retired } = await sandboxes.sweep();
+
+await sandboxes.stopIdle();       // names stopped
+await sandboxes.retireExpired();  // names retired
+```
+
+Both accept a `now` for testing:
+
+```ts
+expect(await sandboxes.retireExpired(Date.now() + 2_000)).toEqual(["life"]);
+```
+
+Call `sandboxes.close()` at shutdown to stop the timer.
+
+## A sandbox this process has never seen
+
+One left running by a previous process is counted as used from the moment it is **first seen**,
+so it is stopped one full timeout later rather than immediately and rather than never. A
+restart does not mass-stop a working fleet, and it does not forget about it either.
+
+## Choosing the numbers
+
+The cost of stopping too eagerly is a cold `npm install` on the next command — exactly what the
+reuse rule exists to avoid. The cost of stopping too late is a container holding memory it is
+not using.
+
+Five minutes spans a burst of activity from one user without keeping an abandoned sandbox
+"running" by the time anyone looks. Raise it if your work arrives in widely spaced bursts;
+raising it is the safe direction, because a stopped sandbox keeps its cache anyway.

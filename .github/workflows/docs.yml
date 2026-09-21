@@ -1,0 +1,29 @@
+name: Documentation checks
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', 'src/**', 'assets/brand.config.json']
+  pull_request:
+    paths: ['docs/**', 'src/**', 'assets/brand.config.json']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: docs/.nvmrc
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+      # Runs the audit too, which reads ../src — so a library change that the docs did not
+      # follow fails here. That is why src/ is in this workflow's path filter.
+      - run: npm test

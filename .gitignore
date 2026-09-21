@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+*.tgz
+
+# test output
+coverage/
+
+# secrets and local config
+.env
+.env.*
+!.env.example
+
+# logs
+logs/
+*.log
+
+# a local workspace store, if anyone points one at the repo
+.microharness/
+
+# SQLite sidecars. A workspace database may legitimately be committed as a
+# conformance fixture; its WAL and SHM files never may — workspace-format.md §5.4
+# excludes them from an export, and they are meaningless away from their writer.
+*.db-wal
+*.db-shm
+
+# editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

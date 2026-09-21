@@ -1,0 +1,95 @@
+---
+title: "Isolation"
+description: "What is taken away from every sandbox, what is left, and the one option that changes the boundary rather than narrowing it."
+---
+
+## What this is, and is not
+
+This is **process isolation, not hardware isolation**. A sandbox cannot read or write the host,
+but the boundary it leans on is the kernel rather than a hypervisor, and that is a weaker
+boundary: a kernel escape is one bug away from the host, where a hypervisor escape is two.
+
+That trade is the entire reason the package exists — a host without `/dev/kvm` cannot have the
+stronger boundary at any price. Everything below narrows the weaker one.
+
+**If your host has KVM and you want hardware isolation, use a microVM runtime.**
+
+## Applied to every sandbox
+
+Each of these removes something a kernel escape would need, and none of them costs a normal
+workload anything — `npm install` runs unchanged under all three.
+
+| Control | What it removes | Default |
+|---|---|---|
+| Rootless | The container's root is an unprivileged host user, via a user namespace | engine-dependent |
+| Capabilities dropped | Every Linux capability. A shell running builds needs none | **on** |
+| No new privileges | Gaining privileges through setuid binaries | **on** |
+| Read-only root | Writes anywhere but the workspace and a private `/tmp` | **off** |
+| seccomp, AppArmor | The engine's default profiles | on (engine) |
+| cgroup limits | Unbounded memory, CPU and process count | on |
+
+```ts
+new Sandboxes({
+  hardening: {
+    dropCapabilities: true,      // default
+    noNewPrivileges: true,       // default
+    readOnlyRoot: false,         // default
+  },
+});
+```
+
+Confirm it from inside rather than trusting the table:
+
+```ts
+const { stdout } = await box.exec("grep -E 'CapEff|NoNewPrivs' /proc/self/status");
+// CapEff:  0000000000000000
+// NoNewPrivs:  1
+```
+
+## Read-only root is off, deliberately
+
+It is the strongest of the three, and it is off because it forbids something callers legitimately
+want: creating symlinks at the guest root, so that workspace-absolute paths resolve.
+
+```ts
+new Sandboxes({ hardening: { readOnlyRoot: true } });
+```
+
+With it on, the image is mounted read-only and only `/workspace` and a private, size-capped
+`/tmp` are writable. Turn it on wherever you do not need to write outside the workspace — most
+workloads do not.
+
+## gVisor
+
+gVisor changes the boundary rather than narrowing it. It puts a user-space kernel in front of
+the syscall interface, so a container's syscalls are serviced by a userspace process instead of
+the host kernel directly — much closer to a VM's isolation, and **it still needs no KVM**.
+
+It installs as an OCI runtime, so adopting it is a configuration change, not a redesign:
+
+```ts
+new Sandboxes({ runtime: "runsc" });
+```
+
+Or `NATIVESANDBOX_OCI_RUNTIME=runsc` in the environment.
+
+<Warning>
+  Prove your workload survives it before relying on it. gVisor implements a large subset of the
+  Linux syscall surface, not all of it, and arm64 builds are less exercised than x86_64. Run your
+  real build — an `npm install`, not an `echo` — under `runsc` first.
+</Warning>
+
+Installation: [gvisor.dev](https://gvisor.dev/docs/user_guide/install/).
+
+## What is not defended against
+
+Being explicit is more useful than a reassuring list:
+
+- **A kernel escape.** This is the boundary. gVisor raises the bar substantially; nothing else
+  here does.
+- **Resource exhaustion of the host**, beyond the per-sandbox cgroup limits. Ten sandboxes each
+  within their limits can still exhaust a small host — budget the fleet, not just the sandbox.
+- **Network egress.** A sandbox with `network: "bridge"` reaches whatever the host reaches. Use
+  `network: "none"`, or police egress in front of the host.
+- **What you hand it.** A token in `env` is available to the untrusted command; that is what
+  passing it means.

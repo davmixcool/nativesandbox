@@ -1,0 +1,116 @@
+---
+title: "Requirements"
+description: "What a host needs to run sandboxes, how to install it, and how to prove it works rather than assume it."
+---
+
+## The short version
+
+- **Linux.** Containers are a Linux kernel feature. macOS and Windows can run the engine in a VM,
+  which works for development but reintroduces the virtualisation this package exists to avoid.
+- **Node 22 or newer.**
+- **Podman or Docker**, reachable over a unix socket.
+- **No `/dev/kvm`.** It is not used, and its absence is the reason this package exists.
+
+## Podman, rootless
+
+Rootless Podman is the recommended engine. The container's root is an unprivileged user on the
+host, through a user namespace, which is the single largest reduction in blast radius available.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y podman
+
+# The library talks to Podman over its REST socket, not the CLI.
+systemctl --user enable --now podman.socket
+
+# Without lingering, the user's systemd session — and the socket with it — is torn down at
+# logout, and sandboxes stop working at an arbitrary later moment with no obvious cause.
+loginctl enable-linger "$USER"
+```
+
+On a current Ubuntu or Debian image, `subuid`/`subgid`, cgroups v2 delegation and user namespaces
+are already configured.
+
+## Docker
+
+Docker works and needs no setup beyond being installed and running. Be aware of what you are
+accepting: the Docker daemon runs as root, and membership of the `docker` group is equivalent to
+root, because anyone who can reach the socket can bind-mount `/` into a container.
+
+For a service whose entire purpose is running model-generated commands, that is the single
+privilege most worth not having. Prefer rootless Podman, or rootless Docker, where you can.
+
+## Verify, rather than assume
+
+The failure that costs the most time is a limit that is *accepted and silently ignored*. Prove
+the host enforces one:
+
+```bash
+podman --version
+systemctl --user is-active podman.socket        # want: active
+ls -l "/run/user/$(id -u)/podman/podman.sock"   # the socket the library connects to
+
+# Want 67108864 (64 MiB), NOT the host's total memory.
+podman run --rm --memory=64m docker.io/library/alpine:latest cat /sys/fs/cgroup/memory.max
+```
+
+A figure equal to the host's total RAM means cgroup delegation is missing: the limit was taken
+and dropped. Treat it as a failure, not a warning — every sandbox on that host is unbounded.
+
+Check delegation directly:
+
+```bash
+cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers"
+```
+
+You want `cpu memory pids` in the output. Without them, rootless containers cannot enforce
+per-sandbox limits at all.
+
+From Node, the same question in one call:
+
+```ts
+const health = await new Sandboxes().check();
+// { ok: true, engine: "5.0.0" } or { ok: false, problem: "…" }
+```
+
+## What the host needs, and why
+
+| Requirement | Why it matters |
+|---|---|
+| cgroups v2 with `cpu memory pids` **delegated** to the user slice | Without delegation, rootless containers cannot enforce memory or CPU at all |
+| `subuid` / `subgid` entries for the user | User namespaces, and therefore rootless containers |
+| Unprivileged user namespaces enabled | Same |
+| seccomp | Syscall filtering per container |
+| AppArmor or SELinux | Mandatory access control per container |
+| `/dev/kvm` | **Not required.** This is the thing the host is allowed to lack |
+
+## Where the socket is found
+
+`socketPath` is resolved in this order, and never written out:
+
+1. `$DOCKER_HOST`, with any `unix://` prefix stripped
+2. On Linux, `/run/user/<your uid>/podman/podman.sock`
+3. `/var/run/docker.sock`
+
+Podman's socket is per-user and carries the caller's own uid. On a host whose service account is
+1001 it is `/run/user/1001/...`, not the `/run/user/1000/...` that every tutorial prints — which
+is why it is derived rather than hard-coded. Override it when you need to:
+
+```ts
+new Sandboxes({ socketPath: "/run/user/1001/podman/podman.sock" });
+```
+
+## Images
+
+Images are pulled on demand the first time a runtime is asked for, because an image missing from
+the cache is normal on a fresh host, after a prune, or the first time a different runtime is
+requested — and failing there would look like a broken installation.
+
+| `runtime` | Image |
+|---|---|
+| `node` (default) | `docker.io/library/node:22-alpine` |
+| `python` | `docker.io/library/python:3.12-alpine` |
+
+Pass `image` to override, or `images` on the constructor to change the mapping. Note that
+rootless Podman keeps images **per user**, under `~/.local/share/containers`: an image pulled
+with `sudo podman` is invisible to your service account, and vice versa.

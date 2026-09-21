@@ -1,0 +1,102 @@
+---
+title: "Troubleshooting"
+description: "The failures that cost the most time, and what each one actually means."
+---
+
+## SIGABRT before the sandbox comes up
+
+```
+[BootStart] failed to start "…": sandbox process exited
+(signal: 6 (SIGABRT) (core dumped)) before agent relay became available
+```
+
+This is a **microVM** runtime failing on a host with no `/dev/kvm`. It is not a corrupt runtime
+and no version of any microVM tool fixes it — nested virtualisation is unavailable on all but
+bare-metal instance types, and Oracle's Ampere ARM64 shapes do not offer it at all.
+
+nativesandbox is the answer to this error. If you are seeing it, you are still on the microVM
+runtime.
+
+## No container engine at …
+
+```
+No container engine at /run/user/1001/podman/podman.sock — is it running?
+```
+
+The socket is per-user and carries **your** uid, not the 1000 every tutorial prints. Check the
+one that matches the account your service runs as:
+
+```bash
+id -u
+systemctl --user is-active podman.socket
+ls -l "/run/user/$(id -u)/podman/podman.sock"
+```
+
+## The socket disappears after a logout
+
+Sandboxes work, then stop at an arbitrary later moment with no deploy and no code change.
+
+The user's systemd session — and the socket with it — is torn down at logout unless lingering is
+on. This is the single most confusing failure in a rootless setup, because the cause and the
+symptom are hours apart.
+
+```bash
+loginctl show-user "$USER" --property=Linger    # want: Linger=yes
+loginctl enable-linger "$USER"
+```
+
+## Limits are accepted and ignored
+
+The worst failure mode here, because nothing fails: every sandbox is simply unbounded.
+
+```ts
+const { stdout } = await box.exec("cat /sys/fs/cgroup/memory.max");
+```
+
+If that prints the host's total memory rather than the limit you asked for, cgroup delegation is
+missing:
+
+```bash
+cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers"
+```
+
+You want `cpu memory pids`. A fresh `user@.service` override may be needed after a kernel or
+systemd upgrade.
+
+## `no such image`
+
+Rootless Podman keeps images **per user**, under `~/.local/share/containers`. An image pulled
+with `sudo podman` is invisible to your service account, and vice versa.
+
+nativesandbox pulls on demand, so this usually resolves itself on the first run — the first pull
+is slow, and every later one is cached.
+
+## A command hangs until the timeout with no output
+
+Almost always a tool waiting on stdin. nativesandbox runs every command with **stdin closed**
+precisely so that readers get EOF immediately, so if you are seeing this, suspect a tool that
+polls a TTY instead: pass its non-interactive flag (`npm --yes`, `apt-get -y`, `git --no-pager`).
+
+## Disk filling up
+
+Stopped sandboxes keep their workspaces on purpose — that is the warm cache. But nothing
+reclaims a workspace unless something calls `remove()`.
+
+```ts
+await sandboxes.removeAll();
+```
+
+[Reclaiming](/guides/reclaiming) covers the automatic deadlines. Note that neither of them
+deletes a workspace: `stopIdle()` stops the container and `retireExpired()` removes the
+container, and both keep the directory. If your fleet is long-lived, you need a policy for
+removing workspaces that will never be used again — the library will not guess it for you.
+
+For the engine's own accumulated layers, `podman system df` shows usage and `podman system
+prune` reclaims it.
+
+## A container this package will not clean up
+
+If you created a container through [`Engine`](/api-reference/types#engine) directly, it carries
+none of this package's labels, so `list()`, `sweep()` and `removeAll()` cannot see it. That is
+deliberate — the label scope is what stops a sweep touching a container it does not own — but it
+means anything you create by hand is yours to remove by hand.

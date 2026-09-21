@@ -1,0 +1,95 @@
+---
+title: "Errors"
+description: "The five error codes, what each one means, and which of them is worth retrying."
+---
+
+Everything this package throws is a `SandboxError` carrying a `code`. Branch on the code, not on
+the message — messages are written for humans and will change.
+
+```ts
+import { SandboxError } from "nativesandbox";
+
+try {
+  await sandboxes.create("job", { memory: MiB(512) });
+} catch (error) {
+  if (!(error instanceof SandboxError)) throw error;
+
+  switch (error.code) {
+    case "unavailable": return retryLater();   // the engine may come back
+    case "gone":        return rebuild();      // something reclaimed it
+    case "engine":      return report(error.message);
+    case "refused":     throw error;           // a bug in the caller
+  }
+}
+```
+
+## The codes
+
+### `unavailable`
+
+No engine at the socket — specifically, the connection failed with `ENOENT` or `ECONNREFUSED`.
+It is not running, or — on rootless Podman — the per-user socket died with the login session.
+
+The message carries the fix rather than just the errno, because `ECONNREFUSED` on an unfamiliar
+socket path is a poor way to learn about `loginctl enable-linger`.
+
+**Retryable.** The engine may come back. If it does not, the fix is on the host:
+
+```bash
+systemctl --user status podman.socket
+loginctl show-user "$USER" --property=Linger    # want: Linger=yes
+```
+
+Without lingering, the socket is torn down at logout and sandboxes stop working at an arbitrary
+later moment with no obvious cause. See
+[troubleshooting](/operations/troubleshooting#the-socket-disappears-after-a-logout).
+
+### `gone`
+
+The engine answered 404 — the container is not there. Usually benign: something reclaimed it
+between your last command and this one.
+
+**Rebuild.** `create()` with the same name makes a new one over the same workspace.
+
+### `engine`
+
+The engine refused something, or failed at it: any other 4xx or 5xx, a pull whose body reported
+a per-layer error, a create that returned no container.
+
+**Not retryable as-is** — the same call will be refused again. The message carries the engine's
+own words, which is usually enough to see what was wrong.
+
+<Note>
+  A pull reports its failures in the response *body*, not the status code, so a 200 with an
+  `"error"` line in it is still an `engine` error. Draining that body is also how `pull()` knows
+  the pull has finished.
+</Note>
+
+### `refused`
+
+This package refused, before the engine saw it. Today that means one thing: a path that tried to
+leave the workspace.
+
+**A bug in the caller**, and it should reach your error tracking rather than a retry. See
+[traversal](/guides/workspace#traversal-is-refused-not-normalised).
+
+## What is not an error
+
+A command that fails is **not** an exception. `exec` resolves with a non-zero `code`, and a
+timeout resolves with `timedOut: true`. A failing build is an outcome your code decides about,
+not something that goes down the `catch` path.
+
+```ts
+const result = await box.exec("npm test");
+if (result.code !== 0) { … }        // a red suite, not a thrown error
+```
+
+Removing a sandbox that is already gone is not an error either — `remove()` returns `false`.
+
+## A reserved code
+
+`SandboxErrorCode` also includes `unsupported`, for a host that cannot run a sandbox at all.
+**Nothing throws it today.** It is in the union so that adding the check later is not a breaking
+change to anyone's `switch`, but do not write a branch that depends on receiving it — use
+[`check()`](/api-reference/sandboxes#check), which answers the same question without an
+exception.

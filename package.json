@@ -1,0 +1,29 @@
+{
+  "name": "nativesandbox",
+  "version": "0.1.0",
+  "description": "Run untrusted code in isolated sandboxes on any Linux host — containers via Podman or Docker, no nested virtualisation and no KVM required.",
+  "keywords": ["sandbox", "container", "podman", "docker", "untrusted-code", "agent", "isolation", "no-kvm", "arm64"],
+  "homepage": "https://nativesandbox.dev",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": { "node": ">=22" }
+}

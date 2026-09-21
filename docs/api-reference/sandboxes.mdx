@@ -1,0 +1,176 @@
+---
+title: "Sandboxes"
+description: "The runtime: creates sandboxes, finds them again, removes them."
+---
+
+```ts
+import { Sandboxes } from "nativesandbox";
+
+const sandboxes = new Sandboxes(options);
+```
+
+One instance owns a fleet. It holds the engine connection, the workspace root, and the
+housekeeping timer.
+
+## Constructor options
+
+`SandboxesOptions`, all optional. It extends `EngineOptions`, which is where
+`socketPath` comes from.
+
+| Option | Type | Default | |
+|---|---|---|---|
+| `socketPath` | `string` | resolved | Where the engine listens. See [resolution order](/getting-started/requirements#where-the-socket-is-found) |
+| `root` | `string` | a temp dir | Where workspace directories live on the host |
+| `images` | `Record<string, string>` | — | `runtime` → image, merged over the defaults |
+| `runtime` | `string` | engine default | OCI runtime. `"runsc"` is [gVisor](/guides/isolation#gvisor) |
+| `prefix` | `string` | `"nsbx"` | Prefixes every container, so a sweep finds only its own |
+| `idleTimeoutMs` | `number` | `300000` | Stop after this long with no command. `0` disables |
+| `maxLifetimeMs` | `number` | `3600000` | Retire this long after creation. `0` disables |
+| `stopGraceMs` | `number` | `10000` | How long a stop waits before killing |
+| `hardening` | `object` | see below | What is taken away from every sandbox |
+
+```ts
+hardening: {
+  dropCapabilities: true,    // drop every Linux capability
+  noNewPrivileges: true,     // forbid privilege gain through setuid
+  readOnlyRoot: false,       // mount the image read-only
+}
+```
+
+`runtime` also reads `NATIVESANDBOX_OCI_RUNTIME` from the environment.
+
+## Properties
+
+| | Type | |
+|---|---|---|
+| `engine` | `Engine` | The engine connection, for calls this package does not wrap |
+| `root` | `string` | The workspace root on the host |
+
+## `create`
+
+```ts
+create(name, spec?)
+```
+
+
+Returns `Promise<Sandbox>`. The sandbox by that name: the existing one if its shape still
+serves, otherwise a fresh one. See [reuse](/guides/sandboxes#reuse-is-meet-or-exceed-not-equality).
+
+```ts
+const box = await sandboxes.create("job-1", { memory: MiB(512), cpus: 2 });
+```
+
+### `SandboxSpec`
+
+| Field | Type | Default | |
+|---|---|---|---|
+| `runtime` | `string` | `"node"` | Selects the image when `image` is absent |
+| `image` | `string` | — | An explicit image, overriding `runtime` |
+| `memory` | `Mebibytes` | `MiB(512)` | Write the unit: `MiB(512)`, `GiB(2)` |
+| `cpus` | `number` | `1` | Fractional allowed — `0.5` is half a core |
+| `pids` | `number` | `512` | Maximum processes; what stops a fork bomb |
+| `network` | `"bridge" \| "none"` | `"bridge"` | `"none"` cuts it off entirely |
+| `idleTimeoutMs` | `number` | instance default | Overrides for this sandbox |
+| `maxLifetimeMs` | `number` | instance default | Overrides for this sandbox |
+| `stopGraceMs` | `number` | instance default | Overrides for this sandbox |
+| `replace` | `boolean` | `false` | Remove any existing sandbox and its workspace first |
+
+## `check`
+
+```ts
+check()
+```
+
+
+Returns `Promise<{ ok: boolean; engine?: string; problem?: string }>`. **Never throws.** Whether
+this host can run a sandbox at all, and why not when it cannot.
+
+Worth calling at startup; the alternative is discovering it on a user's first command.
+
+## `ping`
+
+```ts
+ping()
+```
+
+
+Returns `Promise<string>` — the engine's version. Throws if it is not reachable. `check()` is
+the same question without the exception.
+
+## `list`
+
+```ts
+list()
+```
+
+
+Returns `Promise<SandboxInfo[]>` — every sandbox this runtime owns, in any state. Scoped by
+label to containers created with this `prefix`.
+
+## `workspaceDir`
+
+```ts
+workspaceDir(name)
+```
+
+
+Returns `string` — the host directory mounted into that sandbox, whether or not it exists yet.
+Use it to stage files before the first `create()`.
+
+## `remove`
+
+```ts
+remove(name)
+```
+
+
+Returns `Promise<boolean>` — whether there was one. Removes the container **and its workspace**.
+Removing something already gone is not an error.
+
+## `removeAll`
+
+```ts
+removeAll()
+```
+
+
+Returns `Promise<number>` — how many were removed.
+
+## `stopIdle`
+
+```ts
+stopIdle(now?)
+```
+
+
+Returns `Promise<string[]>` — the names stopped. Stops every sandbox past its idle timeout,
+never one with a command in flight. `now` is for testing.
+
+## `retireExpired`
+
+```ts
+retireExpired(now?)
+```
+
+
+Returns `Promise<string[]>` — the names retired. Removes the container and **keeps the
+workspace** for every sandbox past its maximum lifetime, never one with a command in flight.
+
+## `sweep`
+
+```ts
+sweep(now?)
+```
+
+
+Returns `Promise<{ stopped: string[]; retired: string[] }>`. Both passes. This is what the timer
+runs.
+
+## `close`
+
+```ts
+close()
+```
+
+
+Stops the housekeeping timer. Sandboxes are left as they are. Call it at shutdown.

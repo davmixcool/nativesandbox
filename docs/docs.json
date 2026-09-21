@@ -1,0 +1,91 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "almond",
+  "name": "nativesandbox",
+  "description": "Run untrusted code in isolated sandboxes on any Linux host. No KVM, no nested virtualisation.",
+  "colors": {
+    "primary": "#a3610b",
+    "light": "#f2a33c",
+    "dark": "#a3610b"
+  },
+  "logo": {
+    "light": "/assets/logo-light.svg",
+    "dark": "/assets/logo-dark.svg"
+  },
+  "favicon": "/assets/favicon.svg",
+  "navbar": {
+    "links": [
+      {
+        "label": "npm",
+        "href": "https://www.npmjs.com/package/nativesandbox"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Quickstart",
+      "href": "https://nativesandbox.dev/getting-started/quickstart"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "icon": "book",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "index",
+              "getting-started/quickstart",
+              "getting-started/requirements"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/sandboxes",
+              "guides/commands",
+              "guides/workspace",
+              "guides/limits",
+              "guides/isolation",
+              "guides/reclaiming"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/errors",
+              "operations/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API reference",
+        "icon": "terminal",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": [
+              "api-reference/sandboxes",
+              "api-reference/sandbox",
+              "api-reference/types"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Changelog",
+        "icon": "clock-rotate-left",
+        "groups": [
+          {
+            "group": "Releases",
+            "pages": [
+              "changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

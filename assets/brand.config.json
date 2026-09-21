@@ -1,0 +1,40 @@
+{
+  "name": "nativesandbox",
+  "shortName": "nativesandbox",
+  "tagline": "Sandboxes on any Linux host.",
+  "headline": "Run untrusted code.\nNo KVM required.",
+  "blurb": "Container-backed sandboxes for untrusted code, on any Linux host — no KVM, no nested virtualisation, and no daemon of its own.",
+  "domain": "nativesandbox.dev",
+  "colors": {
+    "ink": "#0b1014",
+    "accent": "#f2a33c",
+    "accentDeep": "#a3610b",
+    "light": "#f7f8f8",
+    "muted": "#8b949e",
+    "onDark": "#e9edf0"
+  },
+  "font": {
+    "family": "Inter",
+    "weight": 600
+  },
+  "inset": 0.9,
+  "cornerRadius": 0.24,
+  "artBounds": [
+    18.59,
+    10.5,
+    162.81,
+    179
+  ],
+  "mark": {
+    "viewBox": "0 0 200 200",
+    "primary": [
+      "M 18.59,71 L 18.59,129 Q 18.59,147 34.18,156 L 84.41,185 Q 100,194 115.59,185 L 165.82,156 Q 181.41,147 181.41,129 L 181.41,71 Q 181.41,53 165.82,44 L 115.59,15 Q 100,6 84.41,15 L 34.18,44 Q 18.59,53 18.59,71 Z M 55,62 L 93,100 L 55,138 L 55,114 L 69,100 L 55,86 Z M 107,114 L 145,114 L 145,138 L 107,138 Z"
+    ]
+  },
+  "markSmall": {
+    "viewBox": "0 0 200 200",
+    "primary": [
+      "M 18.59,71 L 18.59,129 Q 18.59,147 34.18,156 L 84.41,185 Q 100,194 115.59,185 L 165.82,156 Q 181.41,147 181.41,129 L 181.41,71 Q 181.41,53 165.82,44 L 115.59,15 Q 100,6 84.41,15 L 34.18,44 Q 18.59,53 18.59,71 Z M 68,36 L 132,100 L 68,164 L 68,120 L 88,100 L 68,80 Z"
+    ]
+  }
+}

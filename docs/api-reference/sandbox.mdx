@@ -1,0 +1,114 @@
+---
+title: "Sandbox"
+description: "One sandbox: a running container with a workspace directory mounted into it."
+---
+
+Obtained from [`Sandboxes.create()`](/api-reference/sandboxes#create), never
+constructed directly. Every method is safe to call concurrently except the lifecycle ones.
+
+## Properties
+
+| | Type | |
+|---|---|---|
+| `name` | `string` | The name you created it with |
+| `id` | `string` | The container id |
+| `workspaceDir` | `string` | The host directory mounted at `/workspace`. Reading it is reading the sandbox |
+
+## `exec`
+
+```ts
+exec(command, options?)
+```
+
+
+Returns `Promise<ExecResult>`. Runs the command through a shell and waits for all of it.
+
+```ts
+const { code, stdout, stderr, timedOut } = await box.exec("npm test");
+```
+
+A non-zero exit **resolves**; it does not throw. See
+[running commands](/guides/commands#a-non-zero-exit-is-a-result).
+
+### `ExecOptions`
+
+| Field | Type | |
+|---|---|---|
+| `env` | `Record<string, string>` | Applies to this command only, never to the sandbox |
+| `timeoutMs` | `number` | Kills the command and returns `timedOut: true` |
+| `cwd` | `string` | Defaults to the workspace |
+| `onFrame` | `(frame) => void` | Called as output arrives: `{ kind: "stdout" \| "stderr", data: Buffer }` |
+| `signal` | `AbortSignal` | Cancels. Not a timeout, and not reported as one |
+
+### `ExecResult`
+
+| Field | Type | |
+|---|---|---|
+| `code` | `number \| null` | `null` when the command was killed rather than exiting |
+| `stdout` | `string` | |
+| `stderr` | `string` | |
+| `timedOut` | `boolean` | |
+
+## `writeFile`
+
+```ts
+writeFile(path, data)
+```
+
+
+Returns `Promise<void>`. Writes into the workspace — a host write, because the workspace is a
+bind mount. Parent directories are created. `data` is a `Buffer` or a `string`.
+
+Paths may include the `/workspace` prefix or omit it.
+
+## `readFile`
+
+```ts
+readFile(path)
+```
+
+
+Returns `Promise<Buffer>`. Also a host read.
+
+## `exists`
+
+```ts
+exists(path)
+```
+
+
+Returns `boolean`. Synchronous, and does not read the file.
+
+## `hostPath`
+
+```ts
+hostPath(path)
+```
+
+
+Returns `string` — a workspace path as a path on the host.
+
+**Traversal is refused, not normalised.** A path containing a `..` segment throws
+`SandboxError("refused")` before normalising, and the result is checked for containment
+afterwards as well. See [the workspace](/guides/workspace#traversal-is-refused-not-normalised).
+
+## `stop`
+
+```ts
+stop(graceMs?)
+```
+
+
+Returns `Promise<void>`. Stops the sandbox, leaving it able to be started again, and **keeps the
+workspace**. Returns once the engine agrees it has stopped — not when the signal was sent.
+
+`graceMs` defaults to the instance's `stopGraceMs`.
+
+## `kill`
+
+```ts
+kill()
+```
+
+
+Returns `Promise<void>`. Immediate, no grace period.

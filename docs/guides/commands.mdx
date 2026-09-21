@@ -1,0 +1,94 @@
+---
+title: "Running commands"
+description: "exec, live output, timeouts, cancellation, and why a failing command is a result rather than an exception."
+---
+
+```ts
+const { code, stdout, stderr, timedOut } = await box.exec("npm test");
+```
+
+Commands run through a shell, with the workspace as the working directory. Pipes, redirects,
+`&&` and environment expansion all behave as they would in a terminal.
+
+## A non-zero exit is a result
+
+`exec` resolves rather than throwing when a command fails. A failing build, a test suite with a
+red, a `grep` that found nothing — these are outcomes your code decides about, not exceptions:
+
+```ts
+const result = await box.exec("npm run build");
+if (result.code !== 0) {
+  report(result.stderr);
+}
+```
+
+`code` is `null` when the command was killed rather than exiting on its own.
+
+`exec` *does* throw a [`SandboxError`](/operations/errors) when the sandbox or the engine is the
+problem — the sandbox is gone, the socket is unreachable — because those are not outcomes of the
+command.
+
+## Output as it arrives
+
+Waiting for a three-minute install to finish before showing anything is the wrong shape for
+anything a human is watching. `onFrame` is called as output is produced:
+
+```ts
+await box.exec("npm install", {
+  onFrame: ({ kind, data }) => {
+    process[kind === "stderr" ? "stderr" : "stdout"].write(data);
+  },
+});
+```
+
+`kind` is `"stdout"` or `"stderr"`, and `data` is a `Buffer`. The complete output is still
+returned at the end, so a caller that wants both gets both.
+
+## Timeouts
+
+```ts
+const result = await box.exec("./flaky.sh", { timeoutMs: 30_000 });
+if (result.timedOut) { … }
+```
+
+A timeout kills the command and returns `timedOut: true` — it does not throw and does not kill
+the sandbox. Forked grandchildren are killed too: the whole process group goes, so a script that
+backgrounded something cannot outlive the command that started it.
+
+## Cancellation
+
+An `AbortSignal` cancels a command without calling it a timeout:
+
+```ts
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 5_000);
+
+const result = await box.exec("sleep 60", { signal: controller.signal });
+result.timedOut;     // false — it was cancelled, which is a different thing
+```
+
+The distinction matters when you report: a timeout is the command's fault, and a cancellation is
+yours.
+
+## Environment and working directory
+
+```ts
+await box.exec("echo $TOKEN", {
+  env: { TOKEN: "abc" },
+  cwd: "/workspace/packages/api",
+});
+```
+
+`env` applies to that command only, never to the sandbox, so one command's secret is not visible
+to the next. `cwd` defaults to the workspace.
+
+<Warning>
+  Anything in `env` is visible to the command you are running, which is the point — but the
+  command is untrusted code. Pass a token scoped to what that command legitimately needs, and
+  never a credential that can do more than the task.
+</Warning>
+
+## stdin is closed
+
+Every command runs with stdin closed. A tool that reads stdin gets EOF immediately and exits,
+rather than blocking until the timeout with no output and no explanation.

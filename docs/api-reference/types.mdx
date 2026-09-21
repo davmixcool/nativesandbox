@@ -1,0 +1,107 @@
+---
+title: "Types, units and the engine"
+sidebarTitle: "Types & units"
+description: "Everything else the package exports: units, errors, constants, and the raw engine connection."
+---
+
+## Units
+
+```ts
+import { KiB, MiB, GiB, TiB, type Mebibytes } from "nativesandbox";
+```
+
+`Mebibytes` is a branded number, so `memory: 512` does not compile and the unit has to be
+written at the call site. The mebibyte is the canonical unit — `MiB(512) === 512` at runtime —
+and the others convert into it.
+
+| | |
+|---|---|
+| `KiB(n)` | Kibibytes. Fractional in mebibytes: `KiB(512)` is `0.5` |
+| `MiB(n)` | Mebibytes |
+| `GiB(n)` | Gibibytes |
+| `TiB(n)` | Tebibytes |
+
+JavaScript callers get the documentation value without the enforcement — the brand is erased at
+runtime.
+
+## `SandboxError`
+
+```ts
+import { SandboxError, type SandboxErrorCode } from "nativesandbox";
+```
+
+One error type with a stable `code` to branch on, deliberately not a subclass hierarchy: callers
+want to know whether to retry, rebuild or give up, and that is decided by a string.
+
+```ts
+catch (error) {
+  if (error instanceof SandboxError && error.code === "unavailable") { … }
+}
+```
+
+See [errors](/operations/errors) for what to do about each code.
+
+## Constants
+
+| | |
+|---|---|
+| `WORKSPACE` | `"/workspace"` — where the workspace is mounted inside every sandbox |
+| `DEFAULT_IMAGES` | `{ node: "docker.io/library/node:22-alpine", python: "docker.io/library/python:3.12-alpine" }` |
+
+`DEFAULT_IMAGES` is frozen. Pass `images` to the constructor to change the mapping; anything
+unrecognised falls back to `node`.
+
+## `SandboxInfo`
+
+What [`list()`](/api-reference/sandboxes#list) returns.
+
+| Field | Type | |
+|---|---|---|
+| `name` | `string` | |
+| `id` | `string` | Container id |
+| `state` | `string` | The engine's own word — `running`, `exited`, `created`, … |
+| `image` | `string` | |
+| `createdAt` | `Date` | |
+| `idleTimeoutMs` | `number \| null` | What this sandbox was created with. `null` predates the label |
+| `maxLifetimeMs` | `number \| null` | |
+| `stopGraceMs` | `number \| null` | |
+
+<Note>
+  `state` is passed through from the engine rather than translated, because the vocabulary is
+  the engine's and inventing a parallel one hides what `docker ps` would tell you. `exited` is
+  the ordinary stopped state.
+</Note>
+
+## `Engine`
+
+The socket connection. Its constructor takes `EngineOptions` — a single optional
+`socketPath`, which `SandboxesOptions` also accepts and passes through.
+
+The socket connection. You should not need it — `Sandboxes` wraps everything this package does
+— but it is exported so you can make a call this package does not, against the same socket.
+
+```ts
+import { Engine, defaultSocketPath } from "nativesandbox";
+
+const engine = new Engine({ socketPath: defaultSocketPath() });
+await engine.version();                    // { Version, ApiVersion }
+await engine.pull("docker.io/library/go:1.23-alpine");
+await engine.call("GET", "/containers/json?all=true");
+```
+
+| | |
+|---|---|
+| `socketPath` | The resolved path, readonly |
+| `call(method, path, body?)` | A raw Docker/Podman REST call. Returns the parsed body, or `null` |
+| `version()` | `{ Version, ApiVersion }` |
+| `pull(image)` | Pulls, and waits for it |
+
+`defaultSocketPath()` is the resolution described in
+[requirements](/getting-started/requirements#where-the-socket-is-found): `$DOCKER_HOST`, then
+Podman's per-user socket, then Docker's.
+
+<Warning>
+  `Engine` is the unwrapped API. Containers you create through it carry none of this package's
+  labels, so `list()`, `sweep()` and `removeAll()` will not see them — and nothing will reclaim
+  them.
+</Warning>

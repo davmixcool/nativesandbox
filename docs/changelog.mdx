@@ -1,0 +1,32 @@
+---
+title: "Changelog"
+description: "Releases of nativesandbox."
+---
+
+<Update label="0.1.0" description="Unreleased">
+
+The first release.
+
+**Sandboxes.** `create()` with meet-or-exceed reuse, so a dependency install survives between
+commands instead of going cold. `replace` forces a fresh one. `list()`, `remove()` and
+`removeAll()` are scoped by label, so a sweep can only ever touch its own.
+
+**Commands.** `exec()` through a shell, with live output through `onFrame`, timeouts that kill
+forked grandchildren too, and `AbortSignal` cancellation reported separately from a timeout. A
+non-zero exit resolves rather than throwing.
+
+**Workspace.** Bind-mounted rather than copied through an agent channel — 7× faster to place 200
+files and 49× faster to read them back than a microVM runtime on the same machine. Traversal is
+refused rather than normalised.
+
+**Limits.** Memory, CPU and PID ceilings through cgroups, and a per-sandbox network policy.
+Sizes are a branded `Mebibytes`, so `memory: 512` does not compile.
+
+**Isolation.** Every Linux capability dropped and no-new-privileges, both on by default and both
+verified against a real `npm install`. An optional read-only root, and gVisor through
+`runtime: "runsc"`.
+
+**Reclaiming.** Idle stop and a hard maximum lifetime, settable per instance or per sandbox and
+recorded on the container so they survive a restart. Neither interrupts a command in flight.
+
+</Update>

@@ -1,0 +1,80 @@
+---
+title: "The workspace"
+description: "A bind-mounted directory rather than a channel to a guest — what that buys, and how paths are kept inside it."
+---
+
+Every sandbox has a workspace mounted at `/workspace`, and that mount is a directory on the
+host. A microVM runtime copies files in and out over an agent channel; here, writing a file is a
+host write and reading one back is a host read.
+
+Measured against a microVM runtime on the same machine: **7× faster to place 200 files, 49×
+faster to read them back.**
+
+```ts
+await box.writeFile("/src/main.js", "console.log(41 + 1)");
+const { stdout } = await box.exec("node src/main.js");   // "42\n"
+
+const bundle = await box.readFile("/dist/bundle.js");    // Buffer
+box.exists("/dist/bundle.js");                           // true, without reading it
+```
+
+Paths may be written with or without the `/workspace` prefix — `/src/main.js` and
+`/workspace/src/main.js` are the same file. Parent directories are created for you on write.
+
+## It is just a directory
+
+`box.workspaceDir` is the host path, and everything you already know works on it:
+
+```ts
+import { readdirSync } from "node:fs";
+
+readdirSync(box.workspaceDir);
+```
+
+This is the escape hatch that makes the bind mount worth it. Streaming a large artifact out,
+watching for changes, handing the directory to another tool — none of it needs an API from this
+package, because it is not a guest filesystem behind a protocol.
+
+`sandboxes.workspaceDir(name)` gives the same path for a sandbox that does not exist yet, which
+is how you can stage files *before* the first `create()`.
+
+## The workspace outlives the container
+
+Stopping a sandbox keeps its workspace. So does retiring one at its maximum lifetime. The next
+`create()` gets a fresh container over the same directory — a new process on a warm cache.
+
+Only `remove()` deletes it, and it deletes it unconditionally.
+
+```ts
+await box.stop();                 // workspace kept
+await sandboxes.remove("w");      // workspace gone
+```
+
+## Traversal is refused, not normalised
+
+```ts
+box.writeFile("/../../etc/passwd", "…");
+// SandboxError: refused — Refusing a path outside the workspace
+```
+
+The interesting case is the one that looks safe. `/workspace/../../../etc/x` *normalises back
+inside* the workspace directory on some inputs, so a containment check alone passes and the
+caller silently gets a different file from the one it named.
+
+So a path containing a `..` segment is rejected before normalising, and the normalised result is
+checked for containment afterwards as well. A path that tried to leave is a bug or an attack;
+either way the honest answer is no, not a quietly different file.
+
+`hostPath()` applies the same rule, and is public so you can resolve a path yourself under the
+same guarantee:
+
+```ts
+const target = box.hostPath("/dist/bundle.js");   // absolute host path, or throws
+```
+
+<Warning>
+  The workspace is writable by the sandbox, and the sandbox runs untrusted code. Treat everything
+  you read back as untrusted input: a file the command wrote is a file an attacker wrote.
+  Symlinks inside the workspace are the sandbox's to create, so resolve before you follow if you
+  are reading with elevated privileges on the host.
+</Warning>

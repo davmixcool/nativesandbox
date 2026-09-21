@@ -1,0 +1,95 @@
+---
+title: "Sandboxes"
+description: "Creating a sandbox, the reuse rule that keeps caches warm, forcing a fresh one, and removal."
+---
+
+A sandbox is a container with a workspace directory mounted into it. It is identified by a name
+you choose, and that name is how you find it again — across calls, and across process restarts.
+
+```ts
+const sandboxes = new Sandboxes({ root: "/var/tmp/sandboxes" });
+const box = await sandboxes.create("workspace-42", { memory: MiB(512) });
+```
+
+## Reuse is meet-or-exceed, not equality
+
+Calling `create()` for a name that already exists returns the existing sandbox when its shape
+still serves the request, starting it first if it had stopped.
+
+The rule is **meet-or-exceed**, and the distinction is load-bearing. Under equality, a build
+asking for 2 GiB and a small command asking for 256 MiB never share a sandbox, so each one
+replaces the other's and destroys whatever it had installed. That turns every dependency install
+cold. A bigger sandbox runs a smaller command perfectly well; the reverse is not true, so a
+raised budget still takes effect.
+
+```ts
+const big = await sandboxes.create("w", { memory: GiB(2) });
+const small = await sandboxes.create("w", { memory: MiB(256) });
+small.id === big.id;            // true — the big one serves
+
+const bigger = await sandboxes.create("w", { memory: GiB(4) });
+bigger.id === big.id;           // false — rebuilt, because 2 GiB will not do
+```
+
+The image is an exception, because it is an identity rather than a quantity: a Python command
+can never land in a Node sandbox, and no amount of spare memory makes it able to.
+
+### Ceilings run the other way
+
+Capacities meet-or-exceed. **Ceilings meet-or-undercut.**
+
+A sandbox entitled to live for an hour is not handed to a caller who just asked for a minute, so
+it is rebuilt. The reverse is fine: one that stops sooner than asked is harmless, because the
+next `create()` starts it again.
+
+```ts
+await sandboxes.create("w", { maxLifetimeMs: 60 * 60 * 1000 });
+await sandboxes.create("w", { maxLifetimeMs: 60_000 });   // rebuilt
+```
+
+Reuse also refuses a sandbox already older than the requested ceiling. Being *entitled* to live
+long enough is not the same as having done so — a sweep may not have run yet, and handing back a
+sandbox past its ceiling would break it on arrival.
+
+## Forcing a fresh one
+
+When the workspace itself is suspect, `replace` skips reuse entirely:
+
+```ts
+const box = await sandboxes.create("w", { replace: true });
+```
+
+It removes the container **and its workspace**, then builds clean.
+
+`replace` is an *action, not a property*. It is never recorded on the sandbox and never
+influences whether a later `create()` reuses it — otherwise every subsequent call would keep
+replacing. You should rarely need it: a sandbox whose shape no longer serves is already rebuilt
+without it.
+
+## Finding what exists
+
+```ts
+const all = await sandboxes.list();
+// [{ name, id, state, image, createdAt, idleTimeoutMs, maxLifetimeMs, stopGraceMs }]
+```
+
+`list()` is scoped by label to the sandboxes this runtime created, so a sweep can never touch a
+container it does not own. Set `prefix` on the constructor to separate one fleet from another on
+a shared host:
+
+```ts
+new Sandboxes({ prefix: "ci" });      // containers named ci-<name>
+```
+
+## Removing
+
+```ts
+await box.stop();                  // keeps the container and the workspace
+await sandboxes.remove("w");       // removes the container AND the workspace
+await sandboxes.removeAll();       // every sandbox this runtime owns
+```
+
+`stop()` is the reversible one: the next `create()` starts the same container again, with
+everything the last command installed still in place. `remove()` is not reversible — it deletes
+the workspace directory. Removing something that is already gone is not an error; `remove()`
+returns whether there was anything there.
