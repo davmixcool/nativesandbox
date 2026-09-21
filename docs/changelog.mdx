@@ -3,7 +3,16 @@ title: "Changelog"
 description: "Releases of nativesandbox."
 ---
 
-<Update label="0.1.0" description="Unreleased">
+<Update label="0.1.1" description="2026-09-21">
+
+`nativesandbox/package.json` is now reachable through the exports map. Tools that read a
+dependency's manifest — a version gate, a bundler, a doctor script — hit
+`ERR_PACKAGE_PATH_NOT_EXPORTED` on 0.1.0 and had to resolve some other subpath and walk up to
+find the directory.
+
+</Update>
+
+<Update label="0.1.0" description="2026-09-21">
 
 The first release.
 
