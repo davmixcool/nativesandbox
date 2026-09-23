@@ -3,11 +3,12 @@ title: "Reclaiming"
 description: "Idle stop, a hard maximum lifetime, and why a container fleet needs both when a microVM fleet does not."
 ---
 
-A container's main process is `sleep infinity`, so unlike a microVM it never goes quiet on its
-own. A fleet where every sandbox reports `running` forever is one where nothing can ever be
-safely reclaimed — and the disk fills with workspaces nobody can account for.
+A plain container never goes quiet on its own: its main process runs until something stops it. A
+fleet where every sandbox reports `running` forever is one where nothing can ever be safely
+reclaimed — and the disk fills with workspaces nobody can account for.
 
-Two deadlines fix that, and both are on by default.
+Two deadlines fix that, and both are on by default. Each is enforced twice: by the sandbox itself,
+and by a sweep in your process.
 
 | Deadline | Default | What happens | Workspace |
 |---|---|---|---|
@@ -58,11 +59,31 @@ The maximum lifetime is a ceiling on how long a sandbox can be **reused**, not a
 under a running build. A three-hour build in a sandbox with a one-hour ceiling finishes; it is
 retired on the next sweep afterwards.
 
+## The sandbox stops itself
+
+Every sandbox's main process is a small watchdog (`sh`, `date`, `sleep` and `/proc`, so it runs in
+busybox and glibc images alike). Every few seconds it looks for any other process in the sandbox:
+
+- **Something is running** — a command, or anything a command left in the background — and the
+  idle clock resets.
+- **Nothing has run for `idleTimeoutMs`**, and it exits. The container stops.
+- **At `maxLifetimeMs` plus `idleTimeoutMs`** it exits whatever is running: a backstop behind the
+  sweep's gentler retirement below, which lets a command in flight finish.
+
+This is what makes the deadlines hold when no process of yours is alive: a sandbox created by a
+test, a CLI, or a server that has since restarted stops on time anyway. It is what a microVM
+runtime does natively. The watchdog writes nothing, so it works under a read-only root, and it
+traps `SIGTERM`, so `stop()` returns at once rather than waiting out its grace.
+
+`selfStop: false` gives a sandbox `sleep infinity` instead, and leaves stopping it entirely to the
+sweep. `list()` tells the two apart through the `nativesandbox.selfStop` label.
+
 ## Sweeping
 
 A timer runs both passes automatically, at a fraction of the soonest deadline so a sandbox is
 stopped within — not up to double — the interval asked for. It is unref'd, so it will never keep
-your process alive on its own.
+your process alive on its own. `housekeeping: false` does not start it — for a short-lived CLI, or a
+process that should never stop sandboxes it did not create. Sandboxes still stop themselves.
 
 Run them yourself when you want control:
 

@@ -14,7 +14,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { rmSync } from "node:fs";
 import { MiB, Sandboxes, SandboxError, WORKSPACE } from "../src/index.js";
 
-const sandboxes = new Sandboxes({ prefix: "nsbx-test" });
+// `selfStop: false` here and in the host-sweep suites below: they test the sweep, and 1-second
+// deadlines would race a sandbox stopping itself. The self-stop has its own suite.
+const sandboxes = new Sandboxes({ prefix: "nsbx-test", selfStop: false });
 const reachable = await sandboxes.check();
 
 describe.skipIf(!reachable.ok)("nativesandbox", () => {
@@ -150,7 +152,7 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
     // A container's main process is `sleep infinity`, so unlike a microVM it never goes quiet on
     // its own. Without this, every sandbox reports `running` forever and nothing can ever be
     // safely reclaimed — a leak with a fresh coat of paint.
-    const quick = new Sandboxes({ prefix: "nsbx-idle", idleTimeoutMs: 1_000 });
+    const quick = new Sandboxes({ prefix: "nsbx-idle", idleTimeoutMs: 1_000, selfStop: false });
     const IDLE = "idle-suite";
 
     afterAll(async () => {
@@ -193,13 +195,98 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
       // command that process is still running; never stopping it is the leak. So: one full
       // timeout from now.
       await quick.create(IDLE);
-      const fresh = new Sandboxes({ prefix: "nsbx-idle", idleTimeoutMs: 1_000, root: quick.root });
+      const fresh = new Sandboxes({ prefix: "nsbx-idle", idleTimeoutMs: 1_000, root: quick.root, selfStop: false });
       try {
         expect(await fresh.stopIdle()).toEqual([]);                    // first sight: noted
         expect(await fresh.stopIdle(Date.now() + 2_000)).toEqual([IDLE]); // one timeout later: stopped
       } finally {
         fresh.close();
       }
+    });
+  });
+
+  describe("self-stop — a sandbox stops itself, with no process of ours alive", () => {
+    // The host sweep only runs while a process holds a `Sandboxes`. A sandbox created by a test,
+    // a CLI, or a server that has since restarted was `running` forever — and a reclaimer that
+    // rightly never touches a running sandbox kept it too. `housekeeping: false` here, so nothing
+    // but the sandbox's own main process can be what stops it.
+    const alone = new Sandboxes({ prefix: "nsbx-self", idleTimeoutMs: 2_000, housekeeping: false });
+
+    const stateOf = async (name: string) => (await alone.list()).find((s) => s.name === name)?.state;
+    async function until(name: string, state: string, withinMs: number): Promise<number> {
+      const started = Date.now();
+      while (Date.now() - started < withinMs) {
+        if ((await stateOf(name)) === state) return Date.now() - started;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      throw new Error(`${name} was not ${state} within ${withinMs}ms (it is ${await stateOf(name)})`);
+    }
+
+    afterAll(async () => {
+      await alone.removeAll().catch(() => 0);
+      rmSync(alone.root, { recursive: true, force: true });
+    });
+
+    it("stops once nothing has run for its idle timeout", async () => {
+      const box = await alone.create("quiet");
+      await box.exec("true");
+      expect(await stateOf("quiet")).toBe("running");
+      // Two seconds of quiet plus at most one one-second tick, and some slack for the engine.
+      await until("quiet", "exited", 6_000);
+    });
+
+    it("counts anything still running — a command left in the background — as busy", async () => {
+      const box = await alone.create("background", { replace: true });
+      await box.exec("sleep 6 >/dev/null 2>&1 &");
+      await new Promise((r) => setTimeout(r, 4_000));
+      // Past the idle timeout, but something is still running.
+      expect(await stateOf("background")).toBe("running");
+      await until("background", "exited", 8_000);
+    });
+
+    it("stops at its lifetime however busy it is — the backstop behind the host's retirement", async () => {
+      const lifetime = new Sandboxes({ prefix: "nsbx-self", idleTimeoutMs: 0, maxLifetimeMs: 2_000, housekeeping: false, root: alone.root });
+      const box = await lifetime.create("forever", { replace: true });
+      await box.exec("sleep 60 >/dev/null 2>&1 &");
+      await until("forever", "exited", 8_000);
+    });
+
+    it("restarts on the next create, workspace intact, and stops itself again", async () => {
+      const box = await alone.create("quiet");
+      await box.writeFile("/kept.txt", "warm cache");
+      expect((await box.exec("cat kept.txt")).stdout.trim()).toBe("warm cache");
+      await until("quiet", "exited", 6_000);
+    });
+
+    it("stops promptly when asked, rather than waiting out its grace", async () => {
+      const box = await alone.create("prompt", { replace: true, idleTimeoutMs: 60_000 });
+      const started = Date.now();
+      await box.stop(10_000);
+      // A shell as PID 1 ignores SIGTERM unless it traps it; untrapped, this took the full 10s.
+      expect(Date.now() - started).toBeLessThan(5_000);
+    });
+
+    it("says which kind of main process a sandbox has", async () => {
+      await alone.create("labelled", { replace: true });
+      const legacy = new Sandboxes({ prefix: "nsbx-self", selfStop: false, housekeeping: false, root: alone.root });
+      await legacy.create("old-style", { replace: true });
+      const inspect = async (name: string) => {
+        const id = (await alone.list()).find((s) => s.name === name)!.id;
+        return alone.engine.call<{ Config: { Labels: Record<string, string>; Cmd: string[] } }>("GET", `/containers/${id}/json`);
+      };
+      const selfStopping = await inspect("labelled");
+      expect(selfStopping?.Config.Labels["nativesandbox.selfStop"]).toBe("1");
+      expect(selfStopping?.Config.Cmd.slice(0, 2)).toEqual(["sh", "-c"]);
+      const old = await inspect("old-style");
+      expect(old?.Config.Labels["nativesandbox.selfStop"]).toBe("0");
+      expect(old?.Config.Cmd).toEqual(["sleep", "infinity"]);
+    });
+
+    it("works under a read-only root, which it writes nothing to", async () => {
+      const ro = new Sandboxes({ prefix: "nsbx-self", idleTimeoutMs: 2_000, housekeeping: false, root: alone.root, hardening: { readOnlyRoot: true } });
+      const box = await ro.create("readonly", { replace: true });
+      await box.exec("true");
+      await until("readonly", "exited", 6_000);
     });
   });
 
@@ -242,7 +329,7 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
 
   describe("maximum lifetime — nothing lives forever", () => {
     it("retires a sandbox past its ceiling but keeps its workspace", async () => {
-      const short = new Sandboxes({ prefix: "nsbx-life", idleTimeoutMs: 0, maxLifetimeMs: 1_000 });
+      const short = new Sandboxes({ prefix: "nsbx-life", idleTimeoutMs: 0, maxLifetimeMs: 1_000, selfStop: false });
       try {
         const box = await short.create("life");
         await box.writeFile("/kept.txt", "warm cache");
@@ -266,7 +353,7 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
     });
 
     it("lets a command in flight finish rather than killing it mid-build", async () => {
-      const short = new Sandboxes({ prefix: "nsbx-life", idleTimeoutMs: 0, maxLifetimeMs: 1_000 });
+      const short = new Sandboxes({ prefix: "nsbx-life", idleTimeoutMs: 0, maxLifetimeMs: 1_000, selfStop: false });
       try {
         const box = await short.create("busy");
         const running = box.exec("sleep 1.5; echo finished");

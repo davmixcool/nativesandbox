@@ -1,7 +1,7 @@
 {
   "name": "nativesandbox",
-  "version": "0.2.0",
-  "description": "Run untrusted code in isolated sandboxes on any Linux host \u2014 containers via Podman or Docker, no nested virtualisation and no KVM required.",
+  "version": "0.3.0",
+  "description": "Run untrusted code in isolated sandboxes on any Linux host — containers via Podman or Docker, no nested virtualisation and no KVM required.",
   "keywords": [
     "sandbox",
     "container",

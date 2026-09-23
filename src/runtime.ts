@@ -88,6 +88,23 @@ export interface SandboxesOptions extends EngineOptions {
   /** How long a stop waits for the process before killing it. */
   stopGraceMs?: number;
   /**
+   * Run the idle stop and lifetime retirement on a timer in this process. Default true.
+   *
+   * Turn it off in a process that should never stop anything it did not create — a short-lived
+   * CLI, a test of the self-stop. Sandboxes still stop themselves (see `selfStop`).
+   */
+  housekeeping?: boolean;
+  /**
+   * Give every new sandbox a watchdog as its main process, so it stops ITSELF when idle and at
+   * its lifetime — with no process of ours alive to stop it. Default true.
+   *
+   * The timer above only runs while some process holds a `Sandboxes`. A sandbox created by a
+   * test, a CLI, or a server that has since restarted was otherwise `running` forever: nothing
+   * was left to stop it, and a reclaimer that rightly never touches a running sandbox kept it
+   * too. This is what a microVM runtime does natively. Off restores `sleep infinity`.
+   */
+  selfStop?: boolean;
+  /**
    * What is taken away from every sandbox. All on by default; opt out one at a time.
    *
    * These are the container-side answer to "it is process isolation, not hardware isolation":
@@ -191,6 +208,39 @@ const DEFAULTS = {
   stopGraceMs: 10_000,
   hardening: { dropCapabilities: true, noNewPrivileges: true, readOnlyRoot: false },
 };
+
+/**
+ * The main process of a self-stopping sandbox: POSIX `sh`, `date`, `sleep` and `/proc`, so it runs in
+ * busybox and glibc images alike.
+ *
+ * Every tick it looks for any process other than itself. One — a command, or anything a command left
+ * in the background — means busy, and resets the idle clock. Quiet for the idle timeout, it exits and
+ * the container stops. At lifetime plus idle it exits whatever is running: the backstop behind the
+ * host sweep's gentler retirement, which lets a command in flight finish.
+ *
+ * Zombies are not busy: a command that daemonises leaves orphans reparented to PID 1, and a shell
+ * does not reap those. The scan runs in the main process itself, so it never counts its own
+ * children; `sleep & wait` keeps the SIGTERM trap prompt, so `stop` does not wait out its grace.
+ */
+export const WATCHDOG = [
+  "trap 'exit 0' TERM INT HUP",
+  "idle=${NATIVESANDBOX_IDLE_S:-0}; life=${NATIVESANDBOX_LIFE_S:-0}; tick=${NATIVESANDBOX_TICK_S:-5}",
+  "start=$(date +%s); last=$start",
+  "while :; do",
+  "  sleep \"$tick\" & wait $!",
+  "  now=$(date +%s)",
+  "  for p in /proc/[0-9]*; do",
+  "    [ \"$p\" = \"/proc/$$\" ] && continue",
+  "    s=; while read -r k v _; do [ \"$k\" = State: ] && { s=$v; break; }; done 2>/dev/null < \"$p/status\"",
+  "    [ -n \"$s\" ] && [ \"$s\" != Z ] && { last=$now; break; }",
+  "  done",
+  "  [ \"$idle\" -gt 0 ] && [ $((now - last)) -ge \"$idle\" ] && exit 0",
+  "  [ \"$life\" -gt 0 ] && [ $((now - start)) -ge $((life + idle)) ] && exit 0",
+  "done",
+].join("\n");
+
+/** Milliseconds as whole seconds for the watchdog, never rounding a real deadline down to "none". */
+const seconds = (ms: number): number => (ms > 0 ? Math.max(1, Math.ceil(ms / 1000)) : 0);
 
 /** A ceiling as a comparable number: 0 means "no limit", which is the loosest, not the tightest. */
 const ceiling = (ms: number): number => (ms > 0 ? ms : Number.POSITIVE_INFINITY);
@@ -388,6 +438,8 @@ export class Sandboxes {
   /** name → commands in flight, so an idle stop can never interrupt one. */
   readonly #inFlight = new Map<string, number>();
   #idleTimer: NodeJS.Timeout | null = null;
+  readonly #housekeeping: boolean;
+  readonly #selfStop: boolean;
   /** The interval currently armed, so a shorter per-sandbox timeout can shorten it. */
   #tickMs = 0;
 
@@ -402,6 +454,8 @@ export class Sandboxes {
     this.#maxLifetimeMs = options.maxLifetimeMs ?? DEFAULTS.maxLifetimeMs;
     this.#stopGraceMs = options.stopGraceMs ?? DEFAULTS.stopGraceMs;
     this.#hardening = { ...DEFAULTS.hardening, ...options.hardening };
+    this.#housekeeping = options.housekeeping ?? true;
+    this.#selfStop = options.selfStop ?? true;
 
     this.#retune(this.#idleTimeoutMs, this.#maxLifetimeMs);
   }
@@ -416,6 +470,7 @@ export class Sandboxes {
    * Unref'd so it never keeps a process alive on its own.
    */
   #retune(...deadlines: number[]): void {
+    if (!this.#housekeeping) return;
     const live = deadlines.filter((ms) => ms > 0);
     if (live.length === 0) return;
     const wanted = Math.max(Math.min(...live) / 4, 1_000);
@@ -686,9 +741,10 @@ export class Sandboxes {
 
     const body = {
       Image: image,
-      // Idle forever; every command is an exec into this one sandbox. That is what makes it
-      // worth keeping warm, and what preserves whatever the last command installed.
-      Cmd: ["sleep", "infinity"],
+      // Every command is an exec into this one sandbox, which is what makes it worth keeping warm.
+      // The main process only decides when it has been idle long enough to stop (WATCHDOG).
+      Cmd: this.#selfStop ? ["sh", "-c", WATCHDOG] : ["sleep", "infinity"],
+      ...(this.#selfStop ? { Env: this.#watchdogEnv(idleTimeoutMs, maxLifetimeMs) } : {}),
       WorkingDir: WORKSPACE,
       Labels: {
         "nativesandbox.prefix": this.#prefix,
@@ -699,6 +755,7 @@ export class Sandboxes {
         "nativesandbox.idleTimeoutMs": String(idleTimeoutMs),
         "nativesandbox.maxLifetimeMs": String(maxLifetimeMs),
         "nativesandbox.stopGraceMs": String(stopGraceMs),
+        "nativesandbox.selfStop": this.#selfStop ? "1" : "0",
       },
       HostConfig: {
         Binds: [`${dir}:${WORKSPACE}`],
@@ -746,6 +803,15 @@ export class Sandboxes {
     await this.engine.call("POST", `/containers/${created.Id}/start`);
     this.#lastUsed.set(name, Date.now());
     return this.#handle(name, created.Id);
+  }
+
+  /** The watchdog's deadlines, and a tick short enough to stop within a third of the idle timeout. */
+  #watchdogEnv(idleTimeoutMs: number, maxLifetimeMs: number): string[] {
+    const idle = seconds(idleTimeoutMs);
+    const life = seconds(maxLifetimeMs);
+    const soonest = Math.min(...[idle, life].filter((s) => s > 0), 15);
+    const tick = Math.min(5, Math.max(1, Math.floor(soonest / 3)));
+    return [`NATIVESANDBOX_IDLE_S=${idle}`, `NATIVESANDBOX_LIFE_S=${life}`, `NATIVESANDBOX_TICK_S=${tick}`];
   }
 
   /** A `Sandbox` wired to report each command, so idleness is measured from the last one. */

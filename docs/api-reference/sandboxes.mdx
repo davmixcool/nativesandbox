@@ -27,6 +27,8 @@ housekeeping timer.
 | `idleTimeoutMs` | `number` | `300000` | Stop after this long with no command. `0` disables |
 | `maxLifetimeMs` | `number` | `3600000` | Retire this long after creation. `0` disables |
 | `stopGraceMs` | `number` | `10000` | How long a stop waits before killing |
+| `selfStop` | `boolean` | `true` | Each sandbox stops itself when idle and at its lifetime, with no process of yours alive. See [reclaiming](/guides/reclaiming#the-sandbox-stops-itself) |
+| `housekeeping` | `boolean` | `true` | Run the idle and lifetime sweep on a timer in this process |
 | `hardening` | `object` | see below | What is taken away from every sandbox |
 
 ```ts
