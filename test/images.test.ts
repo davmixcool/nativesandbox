@@ -55,14 +55,14 @@ describe.skipIf(!reachable)("the images", () => {
     expect(box.exists("/clip.webm")).toBe(true);
   });
 
-  it("browser: Playwright drives Chromium with no install, catches a page error, and axe finds a violation", async () => {
+  it("browser: Playwright drives headless Chromium with no install, catches a page error, and axe finds a violation", async () => {
     const box = await sandboxes.create("browser", { runtime: "browser", memory: MiB(1024) });
     await box.writeFile(
       "/check.mjs",
       `import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.setContent('<html lang="en"><body><h1>Hi</h1><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><script>throw new Error("boom")</script></body></html>');
@@ -77,6 +77,13 @@ await browser.close();
     const report = JSON.parse(result.stdout.trim().split("\n").pop()!);
     expect(report.errors).toEqual(["boom"]);
     expect(report.violations).toContain("image-alt");
-    expect((await box.exec("lighthouse --version")).code).toBe(0);
+    expect((await box.exec("$CHROME_PATH --version")).code).toBe(0);
+  });
+
+  it("browser: npm install in an empty workspace installs there, not at the root", async () => {
+    // A /node_modules at the root once made npm treat / as the project and install there.
+    const box = await sandboxes.create("browser", { runtime: "browser", memory: MiB(1024) });
+    const result = await box.exec("rm -rf /workspace/* && npm i --no-audit --no-fund is-odd@3.0.1 && test -d /workspace/node_modules/is-odd && test ! -e /node_modules", { timeoutMs: 120_000 });
+    expect(result.code, result.stderr).toBe(0);
   });
 });

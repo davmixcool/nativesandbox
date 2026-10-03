@@ -11,7 +11,7 @@ A sandbox runs one image, chosen by `runtime` or named outright with `image`. Fi
 | `python` | `docker.io/library/python:3.12-alpine` | Alpine | ~55 MB | Python 3.12, pip | — |
 | `node-python` | `ghcr.io/davmixcool/nativesandbox-node-python` | Alpine | ~230 MB | Node 22, npm, Python 3, pip, git, curl | — |
 | `media` | `ghcr.io/davmixcool/nativesandbox-media` | Alpine | ~380 MB | everything in `node-python`, ffmpeg, libvips | — |
-| `browser` | `ghcr.io/davmixcool/nativesandbox-browser` | Debian slim | ~800 MB | everything in `node-python`, Chromium, Playwright, axe, Lighthouse | `memory` ≥ `MiB(1024)`; `/dev/shm` 512 MiB (applied for you) |
+| `browser` | `ghcr.io/davmixcool/nativesandbox-browser` | Debian slim | ~820 MB | everything in `node-python`, headless Chromium, Playwright, axe | `memory` ≥ `MiB(1024)`; `/dev/shm` 512 MiB (applied for you) |
 
 `node` and `python` are the stock Docker Hub images. `node-python`, `media` and `browser` are built from `images/` in the
 nativesandbox repository for `linux/amd64` and `linux/arm64`, and tagged with the package version, so
@@ -46,18 +46,22 @@ vipsthumbnail photo.jpg --size 1600x -o photo-1600.webp
 
 ## `browser`
 
-Everything in `node-python`, plus Chromium driven by Playwright, axe for accessibility and Lighthouse for audits.
+Everything in `node-python`, plus headless Chromium driven by Playwright, and axe for accessibility. Only the
+headless build is installed — the one `chromium.launch()` uses; full Chromium is for headed runs, which a sandbox
+has no use for.
 
 The packages are installed globally, so a script can `import` or `require` them without an `npm install` —
 which would otherwise download a browser on every run. `require()` finds them through `NODE_PATH`; ESM `import`
-ignores `NODE_PATH`, so the same directory is also linked at `/node_modules`, which resolution reaches walking up
-from `/workspace`. A project's own `node_modules` still wins.
+ignores `NODE_PATH`, so a small resolve hook, loaded through `NODE_OPTIONS`, retries a bare import from the global
+directory once normal resolution has failed. A project's own `node_modules` always wins, and `npm install` behaves
+exactly as anywhere else.
 
 | Variable | Value | For |
 |---|---|---|
 | `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | where Playwright finds its Chromium |
-| `NODE_PATH` | `/usr/local/lib/node_modules` | `import { chromium } from 'playwright'` with no install |
-| `CHROME_PATH` | `/usr/local/bin/chromium` | where Lighthouse finds Chrome |
+| `NODE_PATH` | `/usr/local/lib/node_modules` | `require('playwright')` with no install |
+| `NODE_OPTIONS` | `--import=/usr/local/lib/nativesandbox/globals.mjs` | `import { chromium } from 'playwright'` with no install |
+| `CHROME_PATH` | `/usr/local/bin/chromium` | the headless Chromium, for tools that bring their own driver (puppeteer-core) |
 
 ```js
 // check.mjs — fails on a page error or an accessibility violation
@@ -65,7 +69,7 @@ import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 
 const browser = await chromium.launch();
-const page = await browser.newPage();
+const page = await (await browser.newContext()).newPage(); // axe needs a context
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.goto('http://127.0.0.1:4321/');
@@ -93,8 +97,8 @@ runtime gets 512 MiB by default — see `RUNTIME_DEFAULTS` and the `shmSize` opt
 [Resource limits](/guides/limits).
 
 **No capabilities.** Under the default [hardening](/guides/isolation) every capability is dropped, so Chromium's
-own sandbox cannot start. Playwright already launches Chromium without it (`chromiumSandbox: false`); for
-Lighthouse pass `--chrome-flags="--headless --no-sandbox"`. The container is the sandbox.
+own sandbox cannot start. Playwright already launches Chromium without it (`chromiumSandbox: false`); a tool
+that launches `CHROME_PATH` itself must pass `--no-sandbox`. The container is the sandbox.
 
 ## Pulling
 

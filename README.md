@@ -99,8 +99,8 @@ through cgroups, and a network policy per sandbox. Sizes are a branded type, so 
 does not compile: write `MiB(512)` or `GiB(2)`.
 
 **Images for the jobs agents actually run.** `node` and `python` are the stock images. `node-python` is Node and
-Python together, `media` adds ffmpeg and libvips, and `browser` adds Chromium driven by Playwright, with axe and
-Lighthouse importable with no install. Built here for amd64 and arm64; `nsbx pull` fetches the big ones ahead of
+Python together, `media` adds ffmpeg and libvips, and `browser` adds headless Chromium driven by Playwright, with axe
+importable with no install. Built here for amd64 and arm64; `nsbx pull` fetches the big ones ahead of
 the first command. See [Images](https://nativesandbox.dev/images).
 
 **A fleet that reclaims itself.** Idle stop and a hard maximum lifetime, per instance or per

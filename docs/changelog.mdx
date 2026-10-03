@@ -6,8 +6,8 @@ description: "Releases of nativesandbox."
 <Update label="0.4.0" description="2026-10-03">
 
 **Three new runtimes.** `node-python` is Node and Python in one image, so a job that edits with a Python script and builds
-with npm stays in one sandbox. `media` adds ffmpeg and libvips. `browser` adds Chromium driven by Playwright, with
-axe and Lighthouse, importable with no install. All three are built in this repository for amd64 and arm64 and
+with npm stays in one sandbox. `media` adds ffmpeg and libvips. `browser` adds headless Chromium driven by Playwright,
+with axe, importable with no install. All three are built in this repository for amd64 and arm64 and
 tagged with the package version. See [Images](/images).
 
 **`shmSize`.** The size of `/dev/shm`, as a reusable capacity like `memory`. The `browser` runtime gets 512 MiB by

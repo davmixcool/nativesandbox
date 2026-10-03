@@ -60,7 +60,7 @@ const VERSION = (
  *
  * `node` and `python` are the stock Docker Hub images. `node-python`, `media` and `browser` are built from `images/`
  * in this repository: `node-python` is Node and Python together, `media` adds ffmpeg and libvips, and `browser` adds
- * Playwright's Chromium (on Debian, because that Chromium needs glibc).
+ * Playwright's headless Chromium (on Debian, because that Chromium needs glibc).
  */
 export const DEFAULT_IMAGES: Readonly<Record<string, string>> = Object.freeze({
   node: "docker.io/library/node:22-alpine",
