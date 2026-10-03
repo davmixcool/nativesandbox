@@ -49,10 +49,35 @@ import { SandboxError } from "./errors.js";
 /** Where the workspace is mounted inside every sandbox. */
 export const WORKSPACE = "/workspace";
 
-/** runtime name → image. Anything unrecognised falls back to `node`. */
+// The images this package builds are tagged with its own version, so a release and its images move together.
+// Read rather than restated, for the same reason as the CLI's `--version`; the path holds from src/ and dist/.
+const VERSION = (
+  JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
+).version;
+
+/**
+ * runtime name → image. Anything unrecognised falls back to `node`.
+ *
+ * `node` and `python` are the stock Docker Hub images. `node-python`, `media` and `browser` are built from `images/`
+ * in this repository: `node-python` is Node and Python together, `media` adds ffmpeg and libvips, and `browser` adds
+ * Playwright's Chromium (on Debian, because that Chromium needs glibc).
+ */
 export const DEFAULT_IMAGES: Readonly<Record<string, string>> = Object.freeze({
   node: "docker.io/library/node:22-alpine",
   python: "docker.io/library/python:3.12-alpine",
+  "node-python": `ghcr.io/davmixcool/nativesandbox-node-python:${VERSION}`,
+  media: `ghcr.io/davmixcool/nativesandbox-media:${VERSION}`,
+  browser: `ghcr.io/davmixcool/nativesandbox-browser:${VERSION}`,
+});
+
+/**
+ * What a runtime needs beyond its image, applied when a spec does not say otherwise.
+ *
+ * Chromium keeps its renderer state in `/dev/shm`, and an engine's default 64 MB of it crashes the browser on an
+ * ordinary page.
+ */
+export const RUNTIME_DEFAULTS: Readonly<Record<string, { shmSize?: Mebibytes }>> = Object.freeze({
+  browser: { shmSize: MiB(512) },
 });
 
 export interface SandboxesOptions extends EngineOptions {
@@ -140,6 +165,11 @@ export interface SandboxSpec {
   pids?: number;
   /** `"none"` cuts the sandbox off from the network entirely. */
   network?: "bridge" | "none";
+  /**
+   * Size of `/dev/shm`. Absent means the runtime's default (`RUNTIME_DEFAULTS`), else the engine's 64 MB.
+   * A capacity like `memory`: a sandbox with at least this much is reused.
+   */
+  shmSize?: Mebibytes;
 
   /**
    * Stop this sandbox after this long with no command, overriding the instance default.
@@ -594,6 +624,20 @@ export class Sandboxes {
   }
 
   /**
+   * Pull the images for these runtimes now, and return the images pulled.
+   *
+   * `create()` pulls on demand, which is right for a small image and wrong for a large one: the browser image is
+   * several hundred megabytes, and a first command that waits for it blows any sensible timeout. A host that will
+   * use a runtime pulls it ahead — at deploy, or at boot. A name that is not a runtime is pulled as an image
+   * reference. Defaults to every runtime this instance knows.
+   */
+  async pull(runtimes: string[] = Object.keys(this.#images)): Promise<string[]> {
+    const images = [...new Set(runtimes.map((r) => this.#images[r] ?? r))];
+    for (const image of images) await this.engine.pull(image);
+    return images;
+  }
+
+  /**
    * A sandbox by that name: the running one if its shape still serves, else a fresh one.
    *
    * Reuse is MEET-OR-EXCEED, not equality, and the distinction is load-bearing. Under equality a
@@ -685,6 +729,11 @@ export class Sandboxes {
     return spec.image ?? this.#images[spec.runtime ?? DEFAULTS.runtime] ?? this.#images.node!;
   }
 
+  /** The `/dev/shm` a spec asks for, in MiB; 0 means the engine's default. */
+  #shmFor(spec: SandboxSpec): number {
+    return spec.shmSize ?? RUNTIME_DEFAULTS[spec.runtime ?? DEFAULTS.runtime]?.shmSize ?? 0;
+  }
+
   #satisfies(
     container: { Created?: number; Labels?: Record<string, string> },
     spec: SandboxSpec,
@@ -700,6 +749,7 @@ export class Sandboxes {
     if (image !== this.#imageFor(spec)) return false;
     if (memory < (spec.memory ?? DEFAULTS.memory)) return false;
     if (cpus < (spec.cpus ?? DEFAULTS.cpus)) return false;
+    if ((label(labels, "shmSize") ?? 0) < this.#shmFor(spec)) return false;
 
     // Ceilings run the other way: 0 means "no limit", which is the loosest value rather than
     // the tightest, so it compares as infinite.
@@ -737,6 +787,7 @@ export class Sandboxes {
     const idleTimeoutMs = spec.idleTimeoutMs ?? this.#idleTimeoutMs;
     const maxLifetimeMs = spec.maxLifetimeMs ?? this.#maxLifetimeMs;
     const stopGraceMs = spec.stopGraceMs ?? this.#stopGraceMs;
+    const shmSize = this.#shmFor(spec);
     this.#retune(idleTimeoutMs, maxLifetimeMs);
 
     const body = {
@@ -755,6 +806,7 @@ export class Sandboxes {
         "nativesandbox.idleTimeoutMs": String(idleTimeoutMs),
         "nativesandbox.maxLifetimeMs": String(maxLifetimeMs),
         "nativesandbox.stopGraceMs": String(stopGraceMs),
+        "nativesandbox.shmSize": String(shmSize),
         "nativesandbox.selfStop": this.#selfStop ? "1" : "0",
       },
       HostConfig: {
@@ -762,6 +814,7 @@ export class Sandboxes {
         Memory: (spec.memory ?? DEFAULTS.memory) * 1024 * 1024,
         NanoCpus: Math.round((spec.cpus ?? DEFAULTS.cpus) * 1e9),
         PidsLimit: spec.pids ?? DEFAULTS.pids,
+        ...(shmSize > 0 ? { ShmSize: shmSize * 1024 * 1024 } : {}),
         NetworkMode: (spec.network ?? DEFAULTS.network) === "none" ? "none" : "bridge",
         ...(this.#runtime ? { Runtime: this.#runtime } : {}),
         // What a kernel escape would need, taken away. Each is a real reduction of the surface

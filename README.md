@@ -98,6 +98,11 @@ result, not an exception.
 through cgroups, and a network policy per sandbox. Sizes are a branded type, so `memory: 512`
 does not compile: write `MiB(512)` or `GiB(2)`.
 
+**Images for the jobs agents actually run.** `node` and `python` are the stock images. `node-python` is Node and
+Python together, `media` adds ffmpeg and libvips, and `browser` adds Chromium driven by Playwright, with axe and
+Lighthouse importable with no install. Built here for amd64 and arm64; `nsbx pull` fetches the big ones ahead of
+the first command. See [Images](https://nativesandbox.dev/images).
+
 **A fleet that reclaims itself.** Idle stop and a hard maximum lifetime, per instance or per
 sandbox, recorded on the container so they survive a restart. Neither interrupts a command in
 flight, and neither deletes a workspace.
@@ -144,6 +149,7 @@ the hosts that cannot.
 | `run` | A throwaway sandbox, streamed, exiting with the command's own status |
 | `exec` | A command in a sandbox that already exists |
 | `ls` / `rm` / `sweep` | See the fleet, remove from it, reclaim what has gone quiet |
+| `pull` | Fetch runtime images now, rather than on a first command |
 
 ## Documentation
 
@@ -152,6 +158,7 @@ the hosts that cannot.
 | [Quickstart](https://nativesandbox.dev/getting-started/quickstart) | Create, run, read back, clean up |
 | [CLI](https://nativesandbox.dev/cli/doctor) | doctor, setup, and the sandbox commands |
 | [Requirements](https://nativesandbox.dev/getting-started/requirements) | What the host needs, and how to prove it |
+| [Images](https://nativesandbox.dev/images) | Every runtime, what is inside, and how to bring your own |
 | [Isolation](https://nativesandbox.dev/guides/isolation) | What is taken away, and what is not defended against |
 | [API reference](https://nativesandbox.dev/api-reference/sandboxes) | Every option and method |
 | [Troubleshooting](https://nativesandbox.dev/operations/troubleshooting) | The failures that cost the most time |

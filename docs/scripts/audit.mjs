@@ -173,8 +173,15 @@ const workspace = runtime.match(/export const WORKSPACE = "([^"]+)"/u)?.[1];
 if (!workspace) fail('Could not read WORKSPACE from the source');
 else if (!allProse.includes(`\`${workspace}\``)) fail(`Docs never mention the workspace mount point ${workspace}`);
 
-for (const [, image] of runtime.matchAll(/^\s+(node|python): "([^"]+)"/gmu)) {
+for (const [, , image] of runtime.matchAll(/^\s+(node|python): "([^"]+)"/gmu)) {
   if (!allProse.includes(image)) fail(`Default image is undocumented: ${image}`);
+}
+// The built images carry the package version in a template literal; the docs name the repository.
+const built = [...runtime.matchAll(/^\s+"?(node-python|media|browser)"?: `([^:`]+):\$\{VERSION\}`/gmu)];
+if (built.length !== 3) fail(`Expected the node-python, media and browser images in DEFAULT_IMAGES, found ${built.length}`);
+for (const [, name, image] of built) {
+  if (!allProse.includes(image)) fail(`Built image is undocumented: ${image}`);
+  if (!allProse.includes(`\`${name}\``)) fail(`Runtime is undocumented: ${name}`);
 }
 
 // ── 6. the site matches the brand ─────────────────────────────────────────

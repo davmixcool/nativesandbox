@@ -18,6 +18,7 @@ const box = await sandboxes.create("job", {
 | `cpus` | `1` | cgroups; fractional is allowed, `0.5` is half a core |
 | `pids` | `512` | cgroups; this is what stops a fork bomb |
 | `network` | `"bridge"` | the engine; `"none"` cuts it off entirely |
+| `shmSize` | the runtime's, else the engine's 64 MB | the engine; the size of `/dev/shm`. `browser` gets `MiB(512)` from `RUNTIME_DEFAULTS`, because Chromium crashes in 64 MB |
 
 ## Units are part of the type
 

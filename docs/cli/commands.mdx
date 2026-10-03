@@ -133,6 +133,22 @@ done 1 stopped, 1 retired
 
 Useful from cron on a host where the application is not long-lived enough to sweep for itself.
 
+## `pull`
+
+```bash
+nsbx pull --runtime node-python --runtime browser
+```
+
+Pulls runtime images now, rather than on a first command. `--runtime` may be repeated; without it, every runtime's
+image is pulled. Run it at deploy for the large images — the `browser` image is several hundred megabytes, and a
+first command waiting for it times out. See [Images](/images#pulling).
+
+```
+  pulled ghcr.io/davmixcool/nativesandbox-node-python:0.4.0
+  pulled ghcr.io/davmixcool/nativesandbox-browser:0.4.0
+done 2 images ready
+```
+
 ## Exit codes
 
 | | |

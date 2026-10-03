@@ -40,7 +40,7 @@ ${bold("Host")}
 ${bold("Sandboxes")}
   run <cmd>         Run a command in a throwaway sandbox, then remove it
     --name <n>        Name it, so --keep leaves something you can exec into
-    --runtime <r>     node (default) or python
+    --runtime <r>     node (default), python, node-python, media or browser
     --image <ref>     An explicit image, overriding --runtime
     --memory <MiB>    Default 512
     --cpus <n>        Default 1
@@ -51,6 +51,8 @@ ${bold("Sandboxes")}
   rm <name...>      Remove sandboxes and their workspaces
     --all             Every sandbox this runtime owns
   sweep             Stop idle sandboxes and retire expired ones
+  pull              Pull runtime images now, rather than on a first command
+    --runtime <r>     Only this runtime; repeat it for several (default: all)
 
 ${bold("Options")}
   --root <dir>      Where workspaces live on the host
@@ -249,6 +251,23 @@ async function cmdRm(args: Args): Promise<number> {
   }
 }
 
+async function cmdPull(args: Args): Promise<number> {
+  // Every --runtime given, not just the last: `pull --runtime node-python --runtime browser`.
+  const argv = process.argv.slice(2);
+  const runtimes = argv.flatMap((arg, i) =>
+    arg === "--runtime" && argv[i + 1] ? [argv[i + 1]!] : arg.startsWith("--runtime=") ? [arg.slice(10)] : [],
+  );
+  const sandboxes = open(args);
+  try {
+    const pulled = await sandboxes.pull(runtimes.length > 0 ? runtimes : undefined);
+    for (const image of pulled) console.log(`  pulled ${image}`);
+    done(`${pulled.length} image${pulled.length === 1 ? "" : "s"} ready`);
+    return 0;
+  } finally {
+    sandboxes.close();
+  }
+}
+
 async function cmdSweep(args: Args): Promise<number> {
   // Deadlines come off the containers themselves, so this reclaims what other processes created
   // on their own terms rather than on this one's.
@@ -269,7 +288,7 @@ async function cmdSweep(args: Args): Promise<number> {
 
 const COMMANDS: Record<string, (args: Args) => Promise<number>> = {
   doctor: cmdDoctor, setup: cmdSetup, run: cmdRun, exec: cmdExec,
-  ls: cmdLs, list: cmdLs, rm: cmdRm, remove: cmdRm, sweep: cmdSweep,
+  ls: cmdLs, list: cmdLs, rm: cmdRm, remove: cmdRm, sweep: cmdSweep, pull: cmdPull,
 };
 
 async function main(): Promise<number> {

@@ -46,11 +46,12 @@ See [errors](/operations/errors) for what to do about each code.
 | | |
 |---|---|
 | `WORKSPACE` | `"/workspace"` — where the workspace is mounted inside every sandbox |
-| `DEFAULT_IMAGES` | `{ node: "docker.io/library/node:22-alpine", python: "docker.io/library/python:3.12-alpine" }` |
+| `DEFAULT_IMAGES` | runtime → image for `node`, `python`, `node-python`, `media` and `browser` — listed on [Images](/images) |
+| `RUNTIME_DEFAULTS` | runtime → what it needs beyond its image: `{ browser: { shmSize: MiB(512) } }` |
 | `WATCHDOG` | `string` — the main process of a self-stopping sandbox |
 
-`DEFAULT_IMAGES` is frozen. Pass `images` to the constructor to change the mapping; anything
-unrecognised falls back to `node`.
+`DEFAULT_IMAGES` and `RUNTIME_DEFAULTS` are frozen. Pass `images` to the constructor to change the mapping;
+anything unrecognised falls back to `node`. A spec's own `shmSize` overrides `RUNTIME_DEFAULTS`.
 
 `WATCHDOG` is the shell script a self-stopping sandbox runs as its main process — exported so you
 can read exactly what runs as PID 1. See [the sandbox stops itself](/guides/reclaiming#the-sandbox-stops-itself).

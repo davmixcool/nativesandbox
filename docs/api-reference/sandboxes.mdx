@@ -72,10 +72,27 @@ const box = await sandboxes.create("job-1", { memory: MiB(512), cpus: 2 });
 | `cpus` | `number` | `1` | Fractional allowed — `0.5` is half a core |
 | `pids` | `number` | `512` | Maximum processes; what stops a fork bomb |
 | `network` | `"bridge" \| "none"` | `"bridge"` | `"none"` cuts it off entirely |
+| `shmSize` | `Mebibytes` | runtime default, else the engine's 64 MB | Size of `/dev/shm`; `browser` gets `MiB(512)` |
 | `idleTimeoutMs` | `number` | instance default | Overrides for this sandbox |
 | `maxLifetimeMs` | `number` | instance default | Overrides for this sandbox |
 | `stopGraceMs` | `number` | instance default | Overrides for this sandbox |
 | `replace` | `boolean` | `false` | Remove any existing sandbox and its workspace first |
+
+## `pull`
+
+```ts
+pull(runtimes?)
+```
+
+
+Returns `Promise<string[]>` — the images pulled. Pulls the images for these runtimes now, rather than on the first
+`create()` that needs one. A name that is not a runtime is pulled as an image reference; with no argument, every
+image this instance knows. Pull the large images — `browser` — ahead, at deploy or boot. See
+[pulling](/images#pulling).
+
+```ts
+await sandboxes.pull(["node-python", "browser"]);
+```
 
 ## `check`
 

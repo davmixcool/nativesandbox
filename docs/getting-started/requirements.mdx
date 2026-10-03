@@ -104,13 +104,8 @@ new Sandboxes({ socketPath: "/run/user/1001/podman/podman.sock" });
 
 Images are pulled on demand the first time a runtime is asked for, because an image missing from
 the cache is normal on a fresh host, after a prune, or the first time a different runtime is
-requested — and failing there would look like a broken installation.
+requested — and failing there would look like a broken installation. The runtimes, what each image
+holds and how to pull ahead are on [Images](/images).
 
-| `runtime` | Image |
-|---|---|
-| `node` (default) | `docker.io/library/node:22-alpine` |
-| `python` | `docker.io/library/python:3.12-alpine` |
-
-Pass `image` to override, or `images` on the constructor to change the mapping. Note that
-rootless Podman keeps images **per user**, under `~/.local/share/containers`: an image pulled
+Note that rootless Podman keeps images **per user**, under `~/.local/share/containers`: an image pulled
 with `sudo podman` is invisible to your service account, and vice versa.

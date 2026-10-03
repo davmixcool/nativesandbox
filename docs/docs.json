@@ -45,6 +45,12 @@
             ]
           },
           {
+            "group": "Images",
+            "pages": [
+              "images"
+            ]
+          },
+          {
             "group": "CLI",
             "pages": [
               "cli/doctor",

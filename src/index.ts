@@ -7,7 +7,7 @@
  * @see https://nativesandbox.dev
  */
 
-export { Sandboxes, Sandbox, WORKSPACE, DEFAULT_IMAGES, WATCHDOG } from "./runtime.js";
+export { Sandboxes, Sandbox, WORKSPACE, DEFAULT_IMAGES, RUNTIME_DEFAULTS, WATCHDOG } from "./runtime.js";
 export type { SandboxesOptions, SandboxSpec, ExecOptions, ExecResult, SandboxInfo } from "./runtime.js";
 export { Engine, defaultSocketPath } from "./engine.js";
 export type { EngineOptions, Frame } from "./engine.js";

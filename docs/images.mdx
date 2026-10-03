@@ -1,0 +1,133 @@
+---
+title: "Images"
+description: "Every runtime and the image behind it — what is inside, how big it is, what it needs, and how to bring your own."
+---
+
+A sandbox runs one image, chosen by `runtime` or named outright with `image`. Five runtimes come built in.
+
+| `runtime` | Image | Base | Size | Inside | Needs |
+|---|---|---|---|---|---|
+| `node` (default) | `docker.io/library/node:22-alpine` | Alpine | ~160 MB | Node 22, npm | — |
+| `python` | `docker.io/library/python:3.12-alpine` | Alpine | ~55 MB | Python 3.12, pip | — |
+| `node-python` | `ghcr.io/davmixcool/nativesandbox-node-python` | Alpine | ~230 MB | Node 22, npm, Python 3, pip, git, curl | — |
+| `media` | `ghcr.io/davmixcool/nativesandbox-media` | Alpine | ~380 MB | everything in `node-python`, ffmpeg, libvips | — |
+| `browser` | `ghcr.io/davmixcool/nativesandbox-browser` | Debian slim | ~800 MB | everything in `node-python`, Chromium, Playwright, axe, Lighthouse | `memory` ≥ `MiB(1024)`; `/dev/shm` 512 MiB (applied for you) |
+
+`node` and `python` are the stock Docker Hub images. `node-python`, `media` and `browser` are built from `images/` in the
+nativesandbox repository for `linux/amd64` and `linux/arm64`, and tagged with the package version, so
+`nativesandbox@0.4.0` uses `nativesandbox-node-python:0.4.0`. Sizes are uncompressed, on disk.
+
+```ts
+const box = await sandboxes.create("job", { runtime: "node-python" });
+await box.exec("python3 scripts/migrate.py && npm run build");
+```
+
+## `node-python`
+
+Node and Python in one image. `node` has no Python and `python` has no npm, so a job that edits with a Python
+script and builds with npm needs two sandboxes on the stock images — and since the image is part of a sandbox's
+identity, switching between them replaces the sandbox and loses whatever it had installed. `node-python` keeps
+it to one.
+
+- Node 22 and npm, Python 3 (Alpine's, 3.14 at the time of writing) with pip, git and curl.
+- `python` is linked to `python3`.
+- `PIP_BREAK_SYSTEM_PACKAGES=1`: a sandbox is disposable, so `pip install` goes into the system Python rather than
+  being refused.
+
+## `media`
+
+Everything in `node-python`, plus ffmpeg and libvips, for video and images.
+
+```bash
+ffmpeg -i hero.mov -c:v libvpx-vp9 -crf 34 -b:v 0 -an hero.webm
+ffmpeg -i hero.webm -frames:v 1 hero-poster.jpg
+vipsthumbnail photo.jpg --size 1600x -o photo-1600.webp
+```
+
+## `browser`
+
+Everything in `node-python`, plus Chromium driven by Playwright, axe for accessibility and Lighthouse for audits.
+
+The packages are installed globally, so a script can `import` or `require` them without an `npm install` —
+which would otherwise download a browser on every run. `require()` finds them through `NODE_PATH`; ESM `import`
+ignores `NODE_PATH`, so the same directory is also linked at `/node_modules`, which resolution reaches walking up
+from `/workspace`. A project's own `node_modules` still wins.
+
+| Variable | Value | For |
+|---|---|---|
+| `PLAYWRIGHT_BROWSERS_PATH` | `/ms-playwright` | where Playwright finds its Chromium |
+| `NODE_PATH` | `/usr/local/lib/node_modules` | `import { chromium } from 'playwright'` with no install |
+| `CHROME_PATH` | `/usr/local/bin/chromium` | where Lighthouse finds Chrome |
+
+```js
+// check.mjs — fails on a page error or an accessibility violation
+import { chromium } from 'playwright';
+import AxeBuilder from '@axe-core/playwright';
+
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const errors = [];
+page.on('pageerror', (e) => errors.push(e.message));
+await page.goto('http://127.0.0.1:4321/');
+const { violations } = await new AxeBuilder({ page }).analyze();
+await browser.close();
+
+if (errors.length || violations.length) {
+  console.log(JSON.stringify({ errors, violations: violations.map((v) => v.id) }));
+  process.exit(1);
+}
+```
+
+```ts
+const box = await sandboxes.create("verify", { runtime: "browser", memory: MiB(1024) });
+await box.exec("node check.mjs");
+```
+
+**Why Debian.** Playwright's Chromium is built against glibc, and Playwright does not support Alpine's musl. An
+Alpine image with Alpine's own Chromium package is smaller, but it is unsupported, and the browser and Playwright
+then change versions independently.
+
+**Memory and `/dev/shm`.** Chromium needs about a gigabyte; give the sandbox `MiB(1024)` or more. It also keeps
+renderer state in `/dev/shm`, and an engine's default 64 MB crashes it on an ordinary page, so the `browser`
+runtime gets 512 MiB by default — see `RUNTIME_DEFAULTS` and the `shmSize` option in
+[Resource limits](/guides/limits).
+
+**No capabilities.** Under the default [hardening](/guides/isolation) every capability is dropped, so Chromium's
+own sandbox cannot start. Playwright already launches Chromium without it (`chromiumSandbox: false`); for
+Lighthouse pass `--chrome-flags="--headless --no-sandbox"`. The container is the sandbox.
+
+## Pulling
+
+An image is pulled the first time a runtime is asked for. That is fine for the Alpine images and wrong for
+`browser`: a first command that waits for several hundred megabytes blows any reasonable timeout. Pull ahead, at
+deploy or at boot:
+
+```bash
+nsbx pull --runtime node-python --runtime browser
+```
+
+```ts
+await sandboxes.pull(["node-python", "browser"]);
+```
+
+With no runtimes, both pull every image the instance knows. A name that is not a runtime is pulled as an image
+reference.
+
+## Versions
+
+The built images follow the package version. A sandbox's image is part of its identity — `create()` never reuses
+a sandbox across images — so upgrading nativesandbox hands out fresh sandboxes on the new images rather than
+mixing versions.
+
+## Bring your own image
+
+Name an image for one sandbox, or change the mapping for every one:
+
+```ts
+await sandboxes.create("job", { image: "docker.io/library/node:22-bookworm" });
+
+const sandboxes = new Sandboxes({ images: { "node-python": "registry.example.com/my-node-python:3" } });
+```
+
+An image needs two things to run as a sandbox: a POSIX `sh`, which runs the self-stop watchdog and every command,
+and a writable `/workspace`, where the workspace is mounted. Anything else is up to you.

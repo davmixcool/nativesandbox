@@ -46,7 +46,7 @@ describe("the CLI", () => {
     it("lists every command it accepts in its own help", async () => {
       const { code, stdout } = await nsbx("--help");
       expect(code).toBe(0);
-      for (const command of ["doctor", "setup", "run", "exec", "ls", "rm", "sweep"]) {
+      for (const command of ["doctor", "setup", "run", "exec", "ls", "rm", "sweep", "pull"]) {
         expect(stdout).toContain(command);
       }
     });

@@ -11,8 +11,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { rmSync } from "node:fs";
-import { MiB, Sandboxes, SandboxError, WORKSPACE } from "../src/index.js";
+import { readFileSync, rmSync } from "node:fs";
+import { DEFAULT_IMAGES, MiB, Sandboxes, SandboxError, WORKSPACE } from "../src/index.js";
 
 // `selfStop: false` here and in the host-sweep suites below: they test the sweep, and 1-second
 // deadlines would race a sandbox stopping itself. The self-stop has its own suite.
@@ -327,6 +327,47 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
     });
   });
 
+  describe("/dev/shm — what a browser needs", () => {
+    // Read from the mount table rather than `df`, which busybox and coreutils format differently.
+    const shmBytes = async (box: { exec: (c: string) => Promise<{ stdout: string }> }) => {
+      const line = (await box.exec("grep ' /dev/shm ' /proc/mounts")).stdout;
+      const size = line.match(/size=(\d+)k/);
+      return size ? Number(size[1]) * 1024 : null;
+    };
+
+    it("applies the size it was given, and records it", async () => {
+      const box = await sandboxes.create(NAME, { shmSize: MiB(128), replace: true });
+      expect(await shmBytes(box)).toBe(128 * 1024 * 1024);
+      const listed = await sandboxes.engine.call<{ Config: { Labels: Record<string, string> } }>("GET", `/containers/${box.id}/json`);
+      expect(listed?.Config.Labels["nativesandbox.shmSize"]).toBe("128");
+    });
+
+    it("is a capacity: a sandbox with enough is reused, one with too little is rebuilt", async () => {
+      const big = await sandboxes.create(NAME, { shmSize: MiB(128) });
+      expect((await sandboxes.create(NAME, { shmSize: MiB(64) })).id).toBe(big.id);
+      expect((await sandboxes.create(NAME, { shmSize: MiB(256) })).id).not.toBe(big.id);
+    });
+
+    it("gives the browser runtime its default without being asked", async () => {
+      // The browser image itself is not needed to prove the default is applied; any image will do.
+      const local = new Sandboxes({ prefix: "nsbx-shm", selfStop: false, images: { browser: "docker.io/library/node:22-alpine" } });
+      try {
+        const box = await local.create("browser", { runtime: "browser" });
+        expect(await shmBytes(box)).toBe(512 * 1024 * 1024);
+      } finally {
+        local.close();
+        await local.removeAll();
+        rmSync(local.root, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("pulling ahead", () => {
+    it("pulls a runtime's image and says which", async () => {
+      expect(await sandboxes.pull(["node"])).toEqual(["docker.io/library/node:22-alpine"]);
+    });
+  });
+
   describe("maximum lifetime — nothing lives forever", () => {
     it("retires a sandbox past its ceiling but keeps its workspace", async () => {
       const short = new Sandboxes({ prefix: "nsbx-life", idleTimeoutMs: 0, maxLifetimeMs: 1_000, selfStop: false });
@@ -488,6 +529,15 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
       // Removing something that is already gone is not an error.
       expect(await sandboxes.remove(NAME)).toBe(false);
     });
+  });
+});
+
+describe("the images this package builds", () => {
+  it("are tagged with this package's version, so a release and its images move together", () => {
+    const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    for (const runtime of ["node-python", "media", "browser"]) {
+      expect(DEFAULT_IMAGES[runtime]).toBe(`ghcr.io/davmixcool/nativesandbox-${runtime}:${version}`);
+    }
   });
 });
 
