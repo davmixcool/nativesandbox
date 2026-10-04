@@ -650,7 +650,10 @@ export class Sandboxes {
    * asked is acceptable — it restarts here transparently — but one entitled to outlive the
    * ceiling the caller just set is not, so it is rebuilt.
    *
-   * `spec.replace` skips all of this and starts clean.
+   * A rebuild replaces the CONTAINER and keeps the workspace, as retirement does. Deleting it threw
+   * away whatever was installed every time a job moved between images or needed more room.
+   *
+   * `spec.replace` skips all of this and starts clean, workspace included.
    */
   async create(name: string, spec: SandboxSpec = {}): Promise<Sandbox> {
     const full = this.#name(name);
@@ -670,7 +673,7 @@ export class Sandboxes {
         this.#lastUsed.set(name, Date.now());
         return this.#handle(name, existing.Id);
       }
-      await this.remove(name);
+      await this.#discardContainer(name, existing.Id);
     }
     return this.#create(name, spec);
   }
@@ -723,6 +726,14 @@ export class Sandboxes {
 
   #name(name: string): string {
     return `${this.#prefix}-${name}`;
+  }
+
+  /** The container only: its workspace stays for the sandbox built next under the same name. */
+  async #discardContainer(name: string, id: string): Promise<void> {
+    await this.engine.call("POST", `/containers/${id}/kill`).catch(() => null);
+    await this.engine.call("DELETE", `/containers/${id}?force=true&v=true`).catch(() => null);
+    this.#lastUsed.delete(name);
+    this.#inFlight.delete(name);
   }
 
   #imageFor(spec: SandboxSpec): string {

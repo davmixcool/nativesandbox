@@ -34,6 +34,22 @@ bigger.id === big.id;           // false — rebuilt, because 2 GiB will not do
 The image is an exception, because it is an identity rather than a quantity: a Python command
 can never land in a Node sandbox, and no amount of spare memory makes it able to.
 
+### A rebuild keeps the workspace
+
+When a sandbox no longer serves — a different image, more room, a tighter ceiling — the **container**
+is rebuilt and the workspace stays. A job that moves between images keeps what it installed:
+
+```ts
+const site = await sandboxes.create("w", { runtime: "node-python" });
+await site.exec("npm install");
+const check = await sandboxes.create("w", { runtime: "browser", memory: GiB(1) });
+// a new container over the same workspace — node_modules is still there
+```
+
+Installed packages with native parts are built for the image that installed them. `browser` is Debian
+(glibc) and the others are Alpine (musl), so run installs and builds in the image that will use them, and
+give the browser step what is already built.
+
 ### Ceilings run the other way
 
 Capacities meet-or-exceed. **Ceilings meet-or-undercut.**

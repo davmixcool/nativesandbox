@@ -52,12 +52,24 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
       expect(bigger.id).not.toBe(big.id);
     });
 
-    it("never reuses across images, however much room is spare", async () => {
+    it("never reuses across images, however much room is spare — but keeps the workspace", async () => {
       const node = await sandboxes.create(NAME, { runtime: "node", memory: MiB(1024) });
+      await node.exec("mkdir -p node_modules/x && echo kept > node_modules/x/marker");
       const python = await sandboxes.create(NAME, { runtime: "python", memory: MiB(256) });
       // An identity, not a quantity: a python command cannot run in a node sandbox.
       expect(python.id).not.toBe(node.id);
+      // The rebuild replaces the container, not the workspace. Deleting it on every switch threw away
+      // installed dependencies, so a job that moved between images reinstalled cold each time.
+      expect((await python.exec("cat node_modules/x/marker")).stdout.trim()).toBe("kept");
       await sandboxes.create(NAME, { runtime: "node" }); // back to node for the rest
+    });
+
+    it("keeps the workspace when it rebuilds for more room, too", async () => {
+      const small = await sandboxes.create(NAME, { memory: MiB(256) });
+      await small.writeFile("/kept.txt", "yes");
+      const bigger = await sandboxes.create(NAME, { memory: MiB(1024) });
+      expect(bigger.id).not.toBe(small.id);
+      expect((await bigger.readFile("/kept.txt")).toString()).toBe("yes");
     });
 
     it("applies the limits it was given, rather than accepting and ignoring them", async () => {
@@ -370,7 +382,9 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
 
   describe("maximum lifetime — nothing lives forever", () => {
     it("retires a sandbox past its ceiling but keeps its workspace", async () => {
-      const short = new Sandboxes({ prefix: "nsbx-life", idleTimeoutMs: 0, maxLifetimeMs: 1_000, selfStop: false });
+      // Five seconds, not one: the engine reports creation time in whole seconds, so a one-second ceiling
+      // could already read as passed on the first check of a slow run.
+      const short = new Sandboxes({ prefix: "nsbx-life", idleTimeoutMs: 0, maxLifetimeMs: 5_000, selfStop: false });
       try {
         const box = await short.create("life");
         await box.writeFile("/kept.txt", "warm cache");
@@ -379,7 +393,7 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
         expect(await short.retireExpired()).toEqual([]);
         // Past the ceiling, measured from the engine's creation time — so it holds across
         // processes, unlike anything tracked in memory.
-        expect(await short.retireExpired(Date.now() + 2_000)).toEqual(["life"]);
+        expect(await short.retireExpired(Date.now() + 10_000)).toEqual(["life"]);
         expect((await short.list()).some((s) => s.name === "life")).toBe(false);
 
         // The next create is a FRESH container over the SAME workspace.

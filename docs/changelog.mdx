@@ -16,6 +16,11 @@ default (`RUNTIME_DEFAULTS`), because an engine's 64 MB crashes Chromium.
 **`pull()` and `nsbx pull`.** Pull runtime images ahead of the first command — the browser image is too large to
 pull inside one.
 
+**A rebuild keeps the workspace.** When `create()` rebuilds a sandbox because its shape no longer serves — another
+image, more room, a tighter ceiling — it replaces the container and keeps the workspace, as lifetime retirement
+already did. It used to delete the workspace too, so a job moving between images reinstalled its dependencies cold
+on every switch. `replace: true` and `remove()` still delete it.
+
 </Update>
 
 <Update label="0.3.0" description="2026-09-23">
