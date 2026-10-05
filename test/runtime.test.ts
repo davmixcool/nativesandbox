@@ -64,6 +64,17 @@ describe.skipIf(!reachable.ok)("nativesandbox", () => {
       await sandboxes.create(NAME, { runtime: "node" }); // back to node for the rest
     });
 
+    it("rebuilds a sandbox that will not start, rather than handing back one no command can reach", async () => {
+      const first = await sandboxes.create(NAME, { memory: MiB(256) });
+      await first.writeFile("/kept.txt", "yes");
+      // A paused container refuses `start`, as one caught mid-stop does. The failed start used to be swallowed
+      // and the handle returned: the first exec then failed with "container state improper".
+      await sandboxes.engine.call("POST", `/containers/${first.id}/pause`);
+      const again = await sandboxes.create(NAME, { memory: MiB(256) });
+      expect(again.id).not.toBe(first.id);
+      expect((await again.exec("cat kept.txt")).stdout.trim()).toBe("yes");
+    });
+
     it("keeps the workspace when it rebuilds for more room, too", async () => {
       const small = await sandboxes.create(NAME, { memory: MiB(256) });
       await small.writeFile("/kept.txt", "yes");

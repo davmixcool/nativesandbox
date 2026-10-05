@@ -666,10 +666,7 @@ export class Sandboxes {
     const existing = await this.#find(full);
 
     if (existing) {
-      if (this.#satisfies(existing, spec)) {
-        if (existing.State !== "running") {
-          await this.engine.call("POST", `/containers/${existing.Id}/start`).catch(() => null);
-        }
+      if (this.#satisfies(existing, spec) && (existing.State === "running" || await this.#restart(full, existing.Id))) {
         this.#lastUsed.set(name, Date.now());
         return this.#handle(name, existing.Id);
       }
@@ -729,6 +726,18 @@ export class Sandboxes {
   }
 
   /** The container only: its workspace stays for the sandbox built next under the same name. */
+  /**
+   * Start a stopped sandbox, and say whether it is running now.
+   *
+   * A failed start used to be swallowed and the handle returned anyway: a container caught mid-stop (Podman's
+   * `stopping`, as an idle stop runs) or paused answered the first exec with "can only create exec sessions on
+   * running containers". Not running after this means rebuild, which keeps the workspace.
+   */
+  async #restart(fullName: string, id: string): Promise<boolean> {
+    await this.engine.call("POST", `/containers/${id}/start`).catch(() => null);
+    return (await this.#find(fullName))?.State === "running";
+  }
+
   async #discardContainer(name: string, id: string): Promise<void> {
     await this.engine.call("POST", `/containers/${id}/kill`).catch(() => null);
     await this.engine.call("DELETE", `/containers/${id}?force=true&v=true`).catch(() => null);
